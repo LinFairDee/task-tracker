@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TaskFlow — All-in-One Workspace</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-bg">
+    <div class="login-orb orb1"></div>
+    <div class="login-orb orb2"></div>
+    <div class="login-orb orb3"></div>
+  </div>
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon"><i data-lucide="zap"></i></div>
+      <h1>TaskFlow</h1>
+      <p>Your all-in-one workspace</p>
+    </div>
+
+    <!-- PRIMARY: Google Sign-in -->
+    <div id="googleSignInPanel">
+      <button class="btn-google-signin" onclick="loginWithGoogle()" id="googleLoginBtn">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" alt="G" />
+        Sign in with Google
+      </button>
+      <p class="signin-sub">Tasks auto-save to your Google Drive</p>
+      <div class="divider"><span>or</span></div>
+      <button class="btn btn-outline full-width" onclick="showLocalPanel()">
+        <i data-lucide="user"></i> Continue without Google
+      </button>
+    </div>
+
+    <!-- LOCAL PROFILES (offline mode) -->
+    <div id="localPanel" class="hidden">
+      <div id="userSelectionPanel">
+        <h3>Select profile</h3>
+        <div id="existingUsers" class="user-grid"></div>
+        <div class="divider"><span>or</span></div>
+        <button class="btn btn-outline full-width" onclick="showCreateUser()">
+          <i data-lucide="user-plus"></i> Create New Profile
+        </button>
+      </div>
+      <div id="createUserPanel" class="hidden">
+        <h3>Create Profile</h3>
+        <div class="form-group">
+          <label>Your Name</label>
+          <input type="text" id="newUserName" placeholder="e.g. Jane Smith" maxlength="30" />
+        </div>
+        <div class="form-group">
+          <label>Pick a Color</label>
+          <div class="color-picker" id="colorPicker"></div>
+        </div>
+        <div class="form-group">
+          <label>Role (optional)</label>
+          <input type="text" id="newUserRole" placeholder="e.g. Developer, Designer…" maxlength="40" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-outline" onclick="showUserSelection()">Back</button>
+          <button class="btn btn-primary" onclick="createUserProfile()">Create &amp; Enter</button>
+        </div>
+      </div>
+      <button class="btn-text full-width" style="margin-top:12px" onclick="showGooglePanel()">
+        ← Back to Google Sign-in
+      </button>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loginLoadingPanel" class="hidden" style="text-align:center;padding:20px 0">
+      <div class="login-spinner"></div>
+      <p id="loginLoadingMsg" style="margin-top:12px;color:var(--text-2);font-size:13px">Signing in…</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div id="appContainer" class="app hidden">
+
+  <!-- SIDEBAR -->
+  <nav id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-small">
+        <i data-lucide="zap"></i>
+        <span>TaskFlow</span>
+      </div>
+      <button class="icon-btn" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle sidebar">
+        <i data-lucide="panel-left-close"></i>
+      </button>
+    </div>
+
+    <!-- Current User -->
+    <div class="sidebar-user" onclick="showUserMenu()">
+      <div class="avatar" id="sidebarAvatar"></div>
+      <div class="user-info">
+        <span class="user-name" id="sidebarUserName"></span>
+        <span class="user-role" id="sidebarUserRole"></span>
+      </div>
+      <i data-lucide="chevrons-up-down" class="user-chevron"></i>
+    </div>
+
+    <!-- User Menu Dropdown -->
+    <div id="userMenuDropdown" class="dropdown-menu hidden">
+      <div id="userMenuList"></div>
+      <div class="dropdown-divider"></div>
+      <button class="dropdown-item" onclick="showManageTeam()"><i data-lucide="users"></i> Manage Team</button>
+      <button class="dropdown-item" onclick="showAddUser()"><i data-lucide="user-plus"></i> Add Profile</button>
+    </div>
+
+    <!-- Navigation -->
+    <ul class="nav-list">
+      <li><a href="#" class="nav-item active" data-view="dashboard" onclick="showView('dashboard')">
+        <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
+      </a></li>
+      <li><a href="#" class="nav-item" data-view="kanban" onclick="showView('kanban')">
+        <i data-lucide="kanban-square"></i><span>Board</span>
+        <span class="badge" id="tasksBadge"></span>
+      </a></li>
+      <li><a href="#" class="nav-item" data-view="list" onclick="showView('list')">
+        <i data-lucide="list-checks"></i><span>Tasks</span>
+      </a></li>
+      <li><a href="#" class="nav-item" data-view="calendar" onclick="showView('calendar')">
+        <i data-lucide="calendar-days"></i><span>Calendar</span>
+      </a></li>
+      <li class="nav-section-label">Google Workspace</li>
+      <li><a href="#" class="nav-item" data-view="gmail" onclick="showView('gmail')">
+        <i data-lucide="mail"></i><span>Gmail</span>
+        <span class="badge badge-red" id="gmailBadge"></span>
+      </a></li>
+      <li><a href="#" class="nav-item" data-view="drive" onclick="showView('drive')">
+        <i data-lucide="hard-drive"></i><span>Drive</span>
+      </a></li>
+      <li class="nav-section-label">Workspace</li>
+      <li><a href="#" class="nav-item" data-view="team" onclick="showView('team')">
+        <i data-lucide="users"></i><span>Team</span>
+      </a></li>
+      <li><a href="#" class="nav-item" data-view="activity" onclick="showView('activity')">
+        <i data-lucide="activity"></i><span>Activity</span>
+      </a></li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <button class="nav-item full-width" onclick="toggleTheme()">
+        <i data-lucide="sun" id="themeIcon"></i><span id="themeLabel">Light Mode</span>
+      </button>
+      <!-- Drive sync status -->
+      <div class="drive-sync-status nav-item" id="driveSyncStatus" style="cursor:default">
+        <i data-lucide="cloud-off" id="driveSyncIcon"></i>
+        <span id="driveSyncLabel">Not synced</span>
+      </div>
+      <button class="nav-item full-width danger-item" onclick="signOutAndReturnToLogin()" title="Sign out">
+        <i data-lucide="log-out"></i><span>Sign Out</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-wrapper">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn mobile-menu-btn" onclick="toggleSidebar()">
+          <i data-lucide="menu"></i>
+        </button>
+        <h2 id="viewTitle">Dashboard</h2>
+      </div>
+      <div class="topbar-center">
+        <div class="search-box">
+          <i data-lucide="search"></i>
+          <input type="text" id="globalSearch" placeholder="Search tasks, emails, files…" oninput="handleSearch(this.value)" />
+          <kbd>Ctrl K</kbd>
+        </div>
+        <div class="due-filter-wrapper">
+          <button class="icon-btn due-filter-btn" onclick="toggleDueFilter()" title="Filter by due date" id="dueFilterBtn">
+            <i data-lucide="calendar-clock"></i>
+          </button>
+          <div class="due-filter-menu hidden" id="dueFilterMenu">
+            <button class="due-filter-item" onclick="setDueFilter('')" data-due="">All dates</button>
+            <button class="due-filter-item" onclick="setDueFilter('week')" data-due="week">This week</button>
+            <button class="due-filter-item" onclick="setDueFilter('month')" data-due="month">This month</button>
+            <button class="due-filter-item" onclick="setDueFilter('quarter')" data-due="quarter">This quarter</button>
+            <button class="due-filter-item" onclick="setDueFilter('year')" data-due="year">This year</button>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" onclick="showNotifications()" title="Notifications" id="notifBtn">
+          <i data-lucide="bell"></i>
+          <span class="notif-dot hidden" id="notifDot"></span>
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="openWeeklyUpdateDraft()" title="Send Weekly Update to P'Ong">
+          <i data-lucide="mail"></i> Weekly Update
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="openTaskModal()">
+          <i data-lucide="plus"></i> New Task
+        </button>
+      </div>
+    </header>
+
+    <!-- Search Results Overlay -->
+    <div id="searchResults" class="search-results hidden"></div>
+
+    <!-- Notifications Panel -->
+    <div id="notificationsPanel" class="notifications-panel hidden">
+      <div class="panel-header">
+        <h3>Notifications</h3>
+        <button onclick="clearNotifications()" class="btn-text">Clear all</button>
+      </div>
+      <div id="notifList"></div>
+    </div>
+
+    <main class="content-area">
+
+      <!-- ===== DASHBOARD ===== -->
+      <section id="dashboardView" class="view active">
+        <div class="stats-grid" id="statsGrid"></div>
+        <div class="dashboard-grid">
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i data-lucide="clock"></i> Due Soon</h3>
+              <a href="#" onclick="showView('list')" class="link-text">View all</a>
+            </div>
+            <div id="dueSoonList"></div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i data-lucide="trending-up"></i> Progress</h3>
+            </div>
+            <div id="progressChart"></div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i data-lucide="users"></i> Team Activity</h3>
+            </div>
+            <div id="teamActivityList"></div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3><i data-lucide="tag"></i> By Label</h3>
+            </div>
+            <div id="labelChart"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== KANBAN BOARD ===== -->
+      <section id="kanbanView" class="view hidden">
+        <div class="board-toolbar">
+          <div class="filters-row">
+            <select id="kanbanUserFilter" onchange="renderKanban()" class="filter-select">
+              <option value="">All Members</option>
+            </select>
+            <select id="kanbanPriorityFilter" onchange="renderKanban()" class="filter-select">
+              <option value="">All Priorities</option>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select id="kanbanLabelFilter" onchange="renderKanban()" class="filter-select">
+              <option value="">All Labels</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openTaskModal()">
+            <i data-lucide="plus"></i> Add Task
+          </button>
+        </div>
+        <div class="kanban-board" id="kanbanBoard"></div>
+      </section>
+
+      <!-- ===== TASK LIST ===== -->
+      <section id="listView" class="view hidden">
+        <div class="list-toolbar">
+          <div class="filters-row">
+            <select id="listStatusFilter" onchange="renderList()" class="filter-select">
+              <option value="">All Statuses</option>
+              <option value="todo">To Do</option>
+              <option value="inprogress">In Progress</option>
+              <option value="review">Review</option>
+              <option value="done">Done</option>
+            </select>
+            <select id="listPriorityFilter" onchange="renderList()" class="filter-select">
+              <option value="">All Priorities</option>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select id="listUserFilter" onchange="renderList()" class="filter-select">
+              <option value="">All Members</option>
+            </select>
+            <select id="listSortBy" onchange="renderList()" class="filter-select">
+              <option value="created">Created Date</option>
+              <option value="due">Due Date</option>
+              <option value="priority">Priority</option>
+              <option value="title">Title</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openTaskModal()">
+            <i data-lucide="plus"></i> Add Task
+          </button>
+        </div>
+        <div class="list-table">
+          <div class="list-header">
+            <span>Task</span>
+            <span>Assignee</span>
+            <span>Priority</span>
+            <span>Due Date</span>
+            <span>Status</span>
+            <span>Labels</span>
+            <span></span>
+          </div>
+          <div id="taskListBody"></div>
+        </div>
+      </section>
+
+      <!-- ===== MINI CALENDAR ===== -->
+      <section id="calendarView" class="view hidden">
+        <div class="calendar-container">
+          <div class="cal-header">
+            <button class="icon-btn" onclick="changeCalMonth(-1)"><i data-lucide="chevron-left"></i></button>
+            <h3 id="calMonthTitle"></h3>
+            <button class="icon-btn" onclick="changeCalMonth(1)"><i data-lucide="chevron-right"></i></button>
+            <button class="btn btn-sm btn-outline" onclick="goToToday()">Today</button>
+            <div style="flex:1"></div>
+            <button class="btn btn-sm btn-outline gcal-connect-btn" id="calGoogleBtn" onclick="connectGoogleCalendar()" title="Connect Google Calendar">
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="14" alt="G" style="margin-right:4px" />
+              <span id="calGoogleBtnText">Connect Google Calendar</span>
+            </button>
+          </div>
+          <!-- Google Calendar banner -->
+          <div class="gcal-status-banner hidden" id="gcalStatusBanner">
+            <div class="gcal-status-left">
+              <i data-lucide="check-circle" style="width:14px;height:14px;color:var(--success)"></i>
+              <span>Google Calendar connected — events are synced</span>
+            </div>
+            <div class="gcal-status-actions">
+              <button class="btn btn-sm btn-outline" onclick="syncTasksToCalendar()" title="Push tasks to Google Calendar">
+                <i data-lucide="upload" style="width:12px;height:12px"></i> Sync tasks to Google
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="refreshGoogleCalendar()" title="Refresh events">
+                <i data-lucide="refresh-cw" style="width:12px;height:12px"></i>
+              </button>
+            </div>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+        <div class="cal-sidebar hidden" id="calSidebar">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <h4 id="calSelectedDate" style="margin:0;font-size:13px"></h4>
+            <button class="icon-btn" onclick="closeCalSidebar()" title="Close"><i data-lucide="x"></i></button>
+          </div>
+          <div id="calDayTasks"></div>
+          <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="openTaskModalForDate()">
+            <i data-lucide="plus"></i> Add task for this date
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== GMAIL ===== -->
+      <section id="gmailView" class="view hidden">
+        <div id="gmailContent" class="google-view-content">
+          <div class="google-connect-prompt" id="gmailConnectPrompt">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="48" alt="Google" />
+            <h3>Connect Gmail</h3>
+            <p>Sign in with Google to view and send emails directly from TaskFlow.</p>
+            <button class="btn btn-primary" onclick="handleGoogleAuth()">
+              Connect Google Account
+            </button>
+          </div>
+          <div id="gmailPanel" class="gmail-panel hidden">
+            <div class="gmail-sidebar">
+              <button class="btn btn-primary full-width" onclick="openComposeModal()">
+                <i data-lucide="edit"></i> Compose
+              </button>
+              <ul class="gmail-folders">
+                <li class="active" onclick="loadGmailFolder('INBOX')"><i data-lucide="inbox"></i> Inbox <span id="inboxCount"></span></li>
+                <li onclick="loadGmailFolder('SENT')"><i data-lucide="send"></i> Sent</li>
+                <li onclick="loadGmailFolder('STARRED')"><i data-lucide="star"></i> Starred</li>
+                <li onclick="loadGmailFolder('DRAFT')"><i data-lucide="file-text"></i> Drafts</li>
+                <li onclick="loadGmailFolder('SPAM')"><i data-lucide="alert-triangle"></i> Spam</li>
+              </ul>
+            </div>
+            <div class="gmail-main">
+              <div class="gmail-toolbar">
+                <input type="text" id="gmailSearch" placeholder="Search mail…" oninput="searchGmail(this.value)" class="search-input-sm" />
+                <button class="icon-btn" onclick="refreshGmail()"><i data-lucide="refresh-cw"></i></button>
+              </div>
+              <div id="emailList" class="email-list"></div>
+            </div>
+            <div class="gmail-reader" id="emailReader">
+              <div class="email-placeholder">
+                <i data-lucide="mail-open"></i>
+                <p>Select an email to read</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== GOOGLE DRIVE ===== -->
+      <section id="driveView" class="view hidden">
+        <div id="driveContent" class="google-view-content">
+          <div class="google-connect-prompt" id="driveConnectPrompt">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="48" alt="Google" />
+            <h3>Connect Google Drive</h3>
+            <p>Sign in with Google to browse and attach files to your tasks.</p>
+            <button class="btn btn-primary" onclick="handleGoogleAuth()">Connect Google Account</button>
+          </div>
+          <div id="drivePanel" class="drive-panel hidden">
+            <div class="drive-toolbar">
+              <div class="breadcrumb" id="driveBreadcrumb"><span onclick="navigateDrive('root')">My Drive</span></div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="driveSearch" placeholder="Search Drive…" oninput="searchDrive(this.value)" class="search-input-sm" />
+                <button class="btn btn-sm btn-outline" onclick="triggerFileUpload()"><i data-lucide="upload"></i> Upload</button>
+                <input type="file" id="fileUploadInput" hidden multiple onchange="uploadFilesToDrive(this.files)" />
+                <button class="icon-btn" id="driveViewToggle" onclick="toggleDriveView()"><i data-lucide="grid"></i></button>
+              </div>
+            </div>
+            <div id="driveFileList" class="drive-grid"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== GOOGLE CALENDAR ===== -->
+      <section id="gcalendarView" class="view hidden">
+        <div id="gcalContent" class="google-view-content">
+          <div class="google-connect-prompt" id="gcalConnectPrompt">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="48" alt="Google" />
+            <h3>Connect Google Calendar</h3>
+            <p>Sync your tasks with Google Calendar and manage all your events in one place.</p>
+            <button class="btn btn-primary" onclick="handleGoogleAuth()">Connect Google Account</button>
+          </div>
+          <div id="gcalPanel" class="gcal-panel hidden">
+            <div class="gcal-toolbar">
+              <div style="display:flex;gap:8px">
+                <button class="icon-btn" onclick="changeGCalMonth(-1)"><i data-lucide="chevron-left"></i></button>
+                <h3 id="gcalMonthTitle"></h3>
+                <button class="icon-btn" onclick="changeGCalMonth(1)"><i data-lucide="chevron-right"></i></button>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-sm btn-outline" onclick="syncTasksToCalendar()"><i data-lucide="refresh-cw"></i> Sync Tasks</button>
+                <button class="btn btn-sm btn-primary" onclick="openGCalEventModal()"><i data-lucide="plus"></i> New Event</button>
+              </div>
+            </div>
+            <div class="gcal-grid" id="gcalGrid"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== GOOGLE CHAT ===== -->
+      <section id="chatView" class="view hidden">
+        <div id="chatContent" class="google-view-content">
+          <div class="google-connect-prompt" id="chatConnectPrompt">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="48" alt="Google" />
+            <h3>Google Chat</h3>
+            <p>Connect to view your Google Chat spaces and messages. Requires Google Workspace account.</p>
+            <button class="btn btn-primary" onclick="handleGoogleAuth()">Connect Google Account</button>
+            <p class="info-note"><i data-lucide="info"></i> Google Chat API requires Google Workspace. Personal accounts may have limited access.</p>
+          </div>
+          <div id="chatPanel" class="chat-panel hidden">
+            <div class="chat-spaces-list" id="chatSpacesList"></div>
+            <div class="chat-messages-area">
+              <div id="chatMessagesHeader" class="chat-messages-header hidden">
+                <h4 id="chatSpaceName"></h4>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <button class="icon-btn" onclick="refreshChatMessages()" title="Refresh"><i data-lucide="refresh-cw"></i></button>
+                  <a id="chatOpenLink" href="#" target="_blank" class="btn btn-sm btn-outline">
+                    <i data-lucide="external-link"></i> Open in Google Chat
+                  </a>
+                </div>
+              </div>
+              <div id="chatMessagesList" class="chat-messages-list">
+                <div class="email-placeholder">
+                  <i data-lucide="message-square"></i>
+                  <p>Select a space to view messages</p>
+                </div>
+              </div>
+              <!-- Reply bar -->
+              <div id="chatInputArea" class="chat-input-area hidden">
+                <div class="avatar avatar-sm" id="chatInputAvatar"></div>
+                <input type="text" id="chatMessageInput"
+                  placeholder="Message…"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage()}" />
+                <button class="btn btn-primary btn-sm" onclick="sendChatMessage()">
+                  <i data-lucide="send"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== TEAM ===== -->
+      <section id="teamView" class="view hidden">
+        <div class="team-header">
+          <h3>Team Members</h3>
+          <button class="btn btn-primary btn-sm" onclick="showAddUser()">
+            <i data-lucide="user-plus"></i> Add Member
+          </button>
+        </div>
+        <div id="teamGrid" class="team-grid"></div>
+      </section>
+
+      <!-- ===== ACTIVITY LOG ===== -->
+      <section id="activityView" class="view hidden">
+        <div class="activity-header">
+          <h3>Activity Log</h3>
+          <button class="btn btn-sm btn-outline" onclick="clearActivityLog()">Clear log</button>
+        </div>
+        <div id="activityLogList" class="activity-log"></div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODALS
+============================================================ -->
+
+<!-- Task Modal -->
+<div id="taskModal" class="modal-overlay hidden" onclick="closeModalOnBackdrop(event,'taskModal')">
+  <div class="modal modal-large">
+    <div class="modal-header">
+      <h3 id="taskModalTitle">New Task</h3>
+      <div style="display:flex;gap:8px">
+        <button id="deleteTaskBtn" class="btn btn-danger btn-sm hidden" onclick="deleteCurrentTask()">
+          <i data-lucide="trash-2"></i> Delete
+        </button>
+        <button class="icon-btn" onclick="closeModal('taskModal')"><i data-lucide="x"></i></button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editTaskId" />
+      <div class="modal-two-col">
+        <div class="modal-main">
+          <div class="form-group">
+            <input type="text" id="taskTitle" placeholder="Task title…" class="task-title-input" maxlength="120" />
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="taskDesc" placeholder="Add a description…" rows="4"></textarea>
+          </div>
+          <!-- Subtasks -->
+          <div class="form-group">
+            <label>Subtasks</label>
+            <div id="subtaskList" class="subtask-list"></div>
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <input type="text" id="newSubtaskInput" placeholder="Add subtask…" onkeydown="if(event.key==='Enter')addSubtask()" />
+              <button class="btn btn-sm btn-outline" onclick="addSubtask()">Add</button>
+            </div>
+          </div>
+          <!-- Comments -->
+          <div class="form-group">
+            <label>Comments</label>
+            <div id="commentsList" class="comments-list"></div>
+            <div class="comment-input-row">
+              <div class="avatar avatar-sm" id="commentAvatar"></div>
+              <input type="text" id="commentInput" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment()" />
+              <button class="btn btn-sm btn-primary" onclick="addComment()">Post</button>
+            </div>
+          </div>
+          <!-- Attachments -->
+          <div class="form-group">
+            <label>Attachments</label>
+            <div id="attachmentsList" class="attachments-list"></div>
+            <button class="btn btn-sm btn-outline" onclick="openDriveFilePicker()">
+              <i data-lucide="hard-drive"></i> Attach from Drive
+            </button>
+          </div>
+        </div>
+        <div class="modal-side">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="taskStatus">
+              <option value="todo">To Do</option>
+              <option value="inprogress">In Progress</option>
+              <option value="review">Review</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Priority</label>
+            <select id="taskPriority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Assignee</label>
+            <select id="taskAssignee"></select>
+          </div>
+          <div class="form-group">
+            <label>Due Date</label>
+            <div class="dp-trigger" id="dueDateTrigger" onclick="openDatePicker()">
+              <i data-lucide="calendar"></i>
+              <span id="dueDateDisplay">Pick a date</span>
+              <span id="dueDateClear" class="dp-clear hidden" onclick="clearDueDate(event)">×</span>
+            </div>
+            <input type="hidden" id="taskDueDate" />
+          </div>
+          <div class="form-group">
+            <label>Labels</label>
+            <div class="labels-container">
+              <div id="taskLabelsList" class="task-labels-display"></div>
+              <div class="label-dropdown-wrapper" style="position:relative;margin-top:6px">
+                <div class="label-dropdown-input" onclick="toggleLabelDropdown(event)">
+                  <input type="text" id="newLabelInput" placeholder="Select or add label…" maxlength="20"
+                         oninput="filterLabelDropdown()" onkeydown="if(event.key==='Enter'){event.preventDefault();addTaskLabel()}" autocomplete="off" />
+                  <i data-lucide="chevron-down" style="width:14px;height:14px;color:var(--text-3)"></i>
+                </div>
+                <div class="label-dropdown-menu hidden" id="labelDropdownMenu"></div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Add to Google Calendar</label>
+            <button class="btn btn-sm btn-outline" id="addToCalBtn" onclick="addTaskToGoogleCalendar()">
+              <i data-lucide="calendar-plus"></i> Add Event
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('taskModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTask()">Save Task</button>
+    </div>
+  </div>
+</div>
+
+<!-- Compose Email Modal -->
+<div id="composeModal" class="modal-overlay hidden" onclick="closeModalOnBackdrop(event,'composeModal')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>New Email</h3>
+      <button class="icon-btn" onclick="closeModal('composeModal')"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>To</label>
+        <input type="email" id="emailTo" placeholder="recipient@example.com" />
+      </div>
+      <div class="form-group">
+        <label>Subject</label>
+        <input type="text" id="emailSubject" placeholder="Subject…" />
+      </div>
+      <div class="form-group">
+        <label>Message</label>
+        <textarea id="emailBody" rows="8" placeholder="Write your message…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('composeModal')">Discard</button>
+      <button class="btn btn-primary" onclick="sendEmail()"><i data-lucide="send"></i> Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- Google Calendar Event Modal -->
+<div id="gcalEventModal" class="modal-overlay hidden" onclick="closeModalOnBackdrop(event,'gcalEventModal')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>New Calendar Event</h3>
+      <button class="icon-btn" onclick="closeModal('gcalEventModal')"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="gcalEventTitle" placeholder="Event title…" />
+      </div>
+      <div class="form-group">
+        <label>Start Date &amp; Time</label>
+        <input type="datetime-local" id="gcalEventStart" />
+      </div>
+      <div class="form-group">
+        <label>End Date &amp; Time</label>
+        <input type="datetime-local" id="gcalEventEnd" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="gcalEventDesc" rows="3" placeholder="Event description…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('gcalEventModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createGCalEvent()">Create Event</button>
+    </div>
+  </div>
+</div>
+
+<!-- Drive File Picker Modal -->
+<div id="drivePickerModal" class="modal-overlay hidden" onclick="closeModalOnBackdrop(event,'drivePickerModal')">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Attach from Drive</h3>
+      <button class="icon-btn" onclick="closeModal('drivePickerModal')"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="drivePickerSearch" placeholder="Search files…" oninput="searchDrivePicker(this.value)" class="search-input-sm" style="width:100%;margin-bottom:12px" />
+      <div id="drivePickerList" class="drive-picker-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('drivePickerModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmDriveAttachments()">Attach Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toastContainer" class="toast-container"></div>
+
+<!-- Scripts -->
+<!-- DATE PICKER POPUP -->
+<div id="datePickerPopup" class="dp-popup hidden">
+  <div class="dp-popup-header">
+    <button class="icon-btn" onclick="dpNav(-1)"><i data-lucide="chevron-left"></i></button>
+    <span id="dpTitle"></span>
+    <button class="icon-btn" onclick="dpNav(1)"><i data-lucide="chevron-right"></i></button>
+  </div>
+  <div class="dp-grid" id="dpGrid"></div>
+  <div style="padding:6px 0 2px;border-top:1px solid var(--border);margin-top:6px;text-align:center">
+    <button class="btn-text" style="font-size:11px" onclick="dpSelectDate(new Date().toISOString().slice(0,10))">Today</button>
+  </div>
+</div>
+<!-- ===================== WEEKLY UPDATE MODAL ===================== -->
+<div class="modal-overlay hidden" id="weeklyUpdateModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <i data-lucide="send" style="width:20px;height:20px;color:var(--accent)"></i>
+        <h2 style="margin:0;font-size:16px">Weekly Update Draft</h2>
+      </div>
+      <button class="icon-btn" onclick="closeWeeklyModal()"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-3)">
+        <i data-lucide="user" style="width:14px;height:14px"></i>
+        Sending to: <strong id="weeklyRecipientName" style="color:var(--text-1)">P'Ong</strong>
+      </div>
+      <div class="form-group">
+        <label class="form-label">To</label>
+        <input type="email" class="form-input" id="weeklyTo" placeholder="recipient@email.com" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Subject</label>
+        <input type="text" class="form-input" id="weeklySubject" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Message</label>
+        <textarea class="form-input" id="weeklyBody" rows="14" style="resize:vertical;font-family:inherit;line-height:1.6"></textarea>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;padding-top:8px">
+        <button class="btn btn-outline" onclick="closeWeeklyModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="sendWeeklyUpdate()">
+          <i data-lucide="send" style="width:14px;height:14px"></i> Send Update
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="google-integration.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
