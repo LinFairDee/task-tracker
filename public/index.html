@@ -1,13 +1,16 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TaskFlow — All-in-One Workspace</title>
+  <link rel="icon" type="image/png" href="assets/fairdee-favicon.png" />
+  <link rel="apple-touch-icon" href="assets/fairdee-apple-touch-icon.png" />
   <link rel="stylesheet" href="styles.css" />
-  <!-- Google Fonts -->
+  <!-- Google Fonts (Fairdee design system) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Text:ital,wght@0,400;0,500;0,700;1,400&family=Kanit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
@@ -151,11 +154,6 @@
       <button class="nav-item full-width" onclick="toggleTheme()">
         <i data-lucide="sun" id="themeIcon"></i><span id="themeLabel">Light Mode</span>
       </button>
-      <!-- Drive sync status -->
-      <div class="drive-sync-status nav-item" id="driveSyncStatus" style="cursor:default">
-        <i data-lucide="cloud-off" id="driveSyncIcon"></i>
-        <span id="driveSyncLabel">Not synced</span>
-      </div>
       <button class="nav-item full-width danger-item" onclick="signOutAndReturnToLogin()" title="Sign out">
         <i data-lucide="log-out"></i><span>Sign Out</span>
       </button>
@@ -253,9 +251,24 @@
 
       <!-- ===== KANBAN BOARD ===== -->
       <section id="kanbanView" class="view hidden">
+        <div class="board-header-bar">
+          <div class="board-breadcrumb">
+            <span class="breadcrumb-app">TaskFlow</span>
+            <span class="breadcrumb-sep">/</span>
+            <span class="breadcrumb-page" id="boardBreadcrumb">Board</span>
+          </div>
+          <div class="board-sync-badge" id="syncBadge">
+            <span class="sync-dot"></span> Synced &middot; live
+          </div>
+        </div>
+        <div class="board-tab-filters">
+          <button class="tab-filter active" data-tab="all" onclick="setBoardTab('all')">All <span class="tab-count" id="tabCountAll">0</span></button>
+          <button class="tab-filter" data-tab="mine" onclick="setBoardTab('mine')">My Tasks <span class="tab-count" id="tabCountMine">0</span></button>
+          <button class="tab-filter" data-tab="team" onclick="setBoardTab('team')">My Team <span class="tab-count" id="tabCountTeam">0</span></button>
+        </div>
         <div class="board-toolbar">
           <div class="filters-row">
-            <select id="kanbanUserFilter" onchange="renderKanban()" class="filter-select">
+            <select id="kanbanUserFilter" onchange="renderKanban()" class="filter-select" style="display:none">
               <option value="">All Members</option>
             </select>
             <select id="kanbanPriorityFilter" onchange="renderKanban()" class="filter-select">
@@ -502,12 +515,20 @@
       <!-- ===== TEAM ===== -->
       <section id="teamView" class="view hidden">
         <div class="team-header">
-          <h3>Team Members</h3>
-          <button class="btn btn-primary btn-sm" onclick="showAddUser()">
-            <i data-lucide="user-plus"></i> Add Member
-          </button>
+          <h3>Team</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" onclick="toggleTeamEditMode()" id="teamEditModeBtn">
+              <i data-lucide="settings-2"></i> Edit Hierarchy
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="showAddUser()">
+              <i data-lucide="user-plus"></i> Add Member
+            </button>
+          </div>
         </div>
-        <div id="teamGrid" class="team-grid"></div>
+        <!-- Hierarchy tree view -->
+        <div id="teamHierarchy" class="team-hierarchy"></div>
+        <!-- Flat grid (hidden when hierarchy shown) -->
+        <div id="teamGrid" class="team-grid hidden"></div>
       </section>
 
       <!-- ===== ACTIVITY LOG ===== -->
@@ -721,6 +742,11 @@
 <!-- Toast Container -->
 <div id="toastContainer" class="toast-container"></div>
 
+<!-- Firebase SDK (compat for vanilla JS) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
 <!-- Scripts -->
 <!-- DATE PICKER POPUP -->
 <div id="datePickerPopup" class="dp-popup hidden">
@@ -774,5 +800,6 @@
 <script src="config.js"></script>
 <script src="google-integration.js"></script>
 <script src="app.js"></script>
+<script src="firestore.js"></script>
 </body>
 </html>

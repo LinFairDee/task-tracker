@@ -1,7 +1,8 @@
 /* ============================================================
    TASKFLOW — GOOGLE API INTEGRATION
-   Uses Google Identity Services (GIS) for OAuth +
-   direct fetch() calls with Bearer token (no GAPI key needed)
+   Uses Firebase Authentication (Google provider) for sign-in +
+   Google Identity Services (GIS) for silent token refresh +
+   direct fetch() calls with Bearer token
    ============================================================ */
 
 "use strict";
@@ -30,7 +31,12 @@ const DRIVE_UPLOAD  = "https://www.googleapis.com/upload/drive/v3";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const CHAT_BASE     = "https://chat.googleapis.com/v1";
 
-// ── Load GIS only (no gapi needed) ───────────────────────────
+// ── Firebase Auth state ──────────────────────────────────────
+let firebaseAuth = null;
+let googleProvider = null;
+let _firebaseLoginHandled = false; // prevent double onGoogleLoginSuccess calls
+
+// ── Load GIS (needed for silent token refresh) ──────────────
 (function loadGIS() {
   const script = document.createElement("script");
   script.src = "https://accounts.google.com/gsi/client";
@@ -39,6 +45,117 @@ const CHAT_BASE     = "https://chat.googleapis.com/v1";
   script.onload = () => console.log("[Google] GIS loaded");
   document.head.appendChild(script);
 })();
+
+// ── Allowed login domain ─────────────────────────────────────
+const ALLOWED_DOMAIN = "fairdee.co.th";
+function isAllowedEmail(email) {
+  return typeof email === "string" && email.toLowerCase().endsWith("@" + ALLOWED_DOMAIN);
+}
+// Sign out a disallowed account and return to the login screen with a message
+function rejectDisallowedUser() {
+  _firebaseLoginHandled = false;
+  try { if (firebaseAuth) firebaseAuth.signOut(); } catch (e) {}
+  G.isSignedIn = false;
+  G.accessToken = null;
+  G.userInfo = null;
+  if (typeof clearAccessToken === "function") clearAccessToken();
+  if (typeof showToast === "function") showToast(`Only @${ALLOWED_DOMAIN} accounts can sign in`, "error");
+  const btn = document.getElementById("googleLoginBtn");
+  if (btn) { btn.disabled = false; btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" alt="G" /> Sign in with Google'; }
+  if (typeof showGooglePanel === "function") showGooglePanel();
+  document.getElementById("loginScreen")?.classList.remove("hidden");
+  document.getElementById("appContainer")?.classList.add("hidden");
+}
+
+// ── Initialize Firebase Auth ─────────────────────────────────
+function initFirebaseAuth() {
+  const cfg = (typeof firebaseConfig !== "undefined") ? firebaseConfig
+            : (typeof FIREBASE_CONFIG !== "undefined") ? FIREBASE_CONFIG
+            : null;
+  if (typeof firebase === "undefined" || !cfg) {
+    console.warn("[Firebase] SDK or config not available",
+      { firebaseLoaded: typeof firebase !== "undefined", configFound: !!cfg });
+    return;
+  }
+  try {
+    firebase.initializeApp(cfg);
+  } catch (e) {
+    // Already initialized (e.g. hot reload)
+    if (!e.message.includes("already exists")) throw e;
+  }
+  firebaseAuth = firebase.auth();
+  googleProvider = new firebase.auth.GoogleAuthProvider();
+
+  // Restrict the Google account chooser to the fairdee.co.th Workspace
+  googleProvider.setCustomParameters({ hd: ALLOWED_DOMAIN, prompt: "select_account" });
+
+  // Add Google API scopes so the popup grants them upfront
+  const skipScopes = new Set(["openid", "profile", "email"]);
+  GOOGLE_CONFIG.scopes.split(" ").forEach(scope => {
+    if (!skipScopes.has(scope)) googleProvider.addScope(scope);
+  });
+
+  // Persistent auth state — auto-login returning users
+  firebaseAuth.onAuthStateChanged(async (user) => {
+    if (!user) {
+      // Not signed in — show login screen (already default)
+      _firebaseLoginHandled = false;
+      return;
+    }
+
+    // Enforce the allowed domain even for restored sessions
+    if (!isAllowedEmail(user.email)) {
+      console.warn("[Firebase] Blocked non-fairdee account:", user.email);
+      rejectDisallowedUser();
+      return;
+    }
+
+    // Prevent double-handling (signInWithPopup also triggers this)
+    if (_firebaseLoginHandled) return;
+    _firebaseLoginHandled = true;
+
+    console.log("[Firebase] Session restored for:", user.email);
+    G.userInfo = {
+      name: user.displayName || "Google User",
+      email: user.email || "",
+      picture: user.photoURL || "",
+      sub: user.uid,
+    };
+    // Reuse the saved Google API token from the previous session if it's
+    // still valid — this keeps Drive/Gmail/Calendar connected across reloads.
+    if (!G.accessToken) restoreAccessToken();
+    G.isSignedIn = !!G.accessToken;
+
+    // Enter the app right away — never block on Drive.
+    if (typeof onGoogleLoginSuccess === "function") {
+      await onGoogleLoginSuccess(G.userInfo);
+    }
+
+    // If the saved token had expired, try a background silent refresh.
+    // If that also fails, Gmail/Drive show a "Connect" button.
+    if (!G.accessToken) {
+      silentTokenRefresh()
+        .then(() => {
+          G.isSignedIn = true;
+          if (typeof refreshCurrentGoogleViews === "function") refreshCurrentGoogleViews();
+          if (typeof updateDriveSyncStatus === "function") updateDriveSyncStatus("synced");
+        })
+        .catch(() => {
+          console.info("[Firebase] No silent Google API token — click Connect in Gmail/Drive to reconnect");
+        });
+    }
+  });
+
+  console.log("[Firebase] Auth initialized");
+}
+
+// Auto-init when DOM is ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initFirebaseAuth);
+} else {
+  // DOM already ready (script at bottom of body)
+  setTimeout(initFirebaseAuth, 0);
+}
 
 // ── Token refresh ─────────────────────────────────────────────
 G.tokenExpiry = 0;          // epoch ms when current token expires
@@ -51,21 +168,61 @@ function scheduleTokenRefresh() {
   G._refreshTimer = setTimeout(() => silentTokenRefresh(), msUntilRefresh);
 }
 
+// ── Persist the Google API token so a page reload stays connected ──
+const GTOKEN_KEY = "tf_gtoken";
+function saveAccessToken() {
+  try {
+    if (G.accessToken && G.tokenExpiry) {
+      localStorage.setItem(GTOKEN_KEY, JSON.stringify({ token: G.accessToken, expiry: G.tokenExpiry }));
+    }
+  } catch (e) {}
+}
+function restoreAccessToken() {
+  try {
+    const raw = localStorage.getItem(GTOKEN_KEY);
+    if (!raw) return false;
+    const { token, expiry } = JSON.parse(raw);
+    if (token && expiry && expiry > Date.now() + 120000) { // ≥2 min of life left
+      G.accessToken = token;
+      G.tokenExpiry = expiry;
+      scheduleTokenRefresh();
+      return true;
+    }
+    localStorage.removeItem(GTOKEN_KEY);
+  } catch (e) {}
+  return false;
+}
+function clearAccessToken() {
+  try { localStorage.removeItem(GTOKEN_KEY); } catch (e) {}
+}
+
 async function silentTokenRefresh() {
   if (G._refreshPromise) return G._refreshPromise;
   G._refreshPromise = new Promise((resolve, reject) => {
-    if (!window.google?.accounts?.oauth2) { reject(new Error("GIS not ready")); return; }
+    let settled = false;
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      G._refreshPromise = null;
+      fn(arg);
+    };
+    if (!window.google?.accounts?.oauth2) { finish(reject, new Error("GIS not ready")); return; }
+    // GIS can silently never invoke its callback for a non-interactive
+    // request — guard with a timeout so this promise always settles.
+    const timer = setTimeout(() => finish(reject, new Error("Silent refresh timed out")), 8000);
     const tc = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CONFIG.clientId,
       scope: GOOGLE_CONFIG.scopes,
       callback: (resp) => {
-        G._refreshPromise = null;
-        if (resp.error) { reject(new Error(resp.error)); return; }
+        if (resp.error) { finish(reject, new Error(resp.error)); return; }
         G.accessToken  = resp.access_token;
         G.tokenExpiry  = Date.now() + 3600000;
         scheduleTokenRefresh();
-        resolve(resp.access_token);
+        saveAccessToken();
+        finish(resolve, resp.access_token);
       },
+      error_callback: (err) => finish(reject, new Error(err?.type || "Silent refresh failed")),
     });
     tc.requestAccessToken({ prompt: "" }); // silent — no popup if already consented
   });
@@ -128,88 +285,128 @@ async function gFetchRaw(url, options = {}, _retried = false) {
   return res;
 }
 
-// ── Auth ──────────────────────────────────────────────────────
+// ── Auth (Firebase Authentication + GIS for API tokens) ──────
 
 // Called from login screen "Sign in with Google" button
 function startGoogleLogin() {
-  if (GOOGLE_CONFIG.clientId.startsWith("YOUR_CLIENT_ID")) {
-    alert("Please update config.js with your Google API credentials first.");
-    return;
-  }
-  if (!window.google?.accounts?.oauth2) {
-    // GIS not loaded yet, retry
+  if (!firebaseAuth) {
+    // Firebase not ready yet, retry
     const btn = document.getElementById("googleLoginBtn");
     if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
-    setTimeout(startGoogleLogin, 1000);
+    setTimeout(startGoogleLogin, 500);
     return;
   }
-  G.loginMode = "login"; // distinguish from "connect" inside app
-  signInGoogle();
-}
 
-// Called from inside the app (if ever needed to reconnect)
-function handleGoogleAuth() {
-  if (G.isSignedIn) { signOutGoogle(); return; }
-  G.loginMode = "connect";
-  signInGoogle();
-}
+  const btn = document.getElementById("googleLoginBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Signing in…"; }
 
-function signInGoogle() {
-  try {
-    G.tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CONFIG.clientId,
-      scope: GOOGLE_CONFIG.scopes,
-      callback: handleTokenResponse,
+  _firebaseLoginHandled = true; // prevent onAuthStateChanged from also handling
+
+  firebaseAuth.signInWithPopup(googleProvider)
+    .then(async (result) => {
+      // Block any account outside the allowed domain
+      if (!isAllowedEmail(result.user && result.user.email)) {
+        rejectDisallowedUser();
+        return;
+      }
+      // Extract Google OAuth access token from the credential
+      const credential = result.credential;
+      if (credential && credential.accessToken) {
+        G.accessToken = credential.accessToken;
+        G.tokenExpiry = Date.now() + 3600000;
+        scheduleTokenRefresh();
+        saveAccessToken(); // persist so a reload stays connected
+      }
+
+      const user = result.user;
+      G.userInfo = {
+        name: user.displayName || "Google User",
+        email: user.email || "",
+        picture: user.photoURL || "",
+        sub: user.uid,
+      };
+      G.isSignedIn = true;
+
+      console.log("[Firebase] Signed in as:", user.email);
+
+      // Enter the app
+      if (typeof onGoogleLoginSuccess === "function") {
+        await onGoogleLoginSuccess(G.userInfo);
+      }
+    })
+    .catch((error) => {
+      _firebaseLoginHandled = false;
+      console.error("[Firebase Auth]", error);
+      if (error.code !== "auth/popup-closed-by-user") {
+        showToast("Sign-in failed: " + error.message, "error");
+      }
+      if (btn) { btn.disabled = false; btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" alt="G" /> Sign in with Google'; }
+      if (typeof showGooglePanel === "function") showGooglePanel();
     });
-    G.tokenClient.requestAccessToken({ prompt: "" });
-  } catch (e) {
-    console.error("[Google Auth] Failed:", e);
-    showToast("Sign-in failed: " + e.message, "error");
-    showGooglePanel();
-  }
 }
 
-async function handleTokenResponse(resp) {
-  if (resp.error) {
-    const msg = resp.error_description || resp.error;
-    showToast("Google sign-in failed: " + msg, "error");
-    if (typeof showGooglePanel === "function") showGooglePanel();
+// Called from inside the app to reconnect Google API access
+function handleGoogleAuth() {
+  if (G.isSignedIn && G.accessToken) {
+    // Already connected — toggle sign-out
+    signOutGoogle();
     return;
   }
-  G.accessToken = resp.access_token;
-  G.isSignedIn  = true;
-  G.tokenExpiry = Date.now() + 3600000; // tokens last 1 hour
-  scheduleTokenRefresh();               // auto-refresh 5 min before expiry
-
-  await fetchGoogleUserInfo();
-
-  if (G.loginMode === "login" && typeof onGoogleLoginSuccess === "function") {
-    // Full app login — pass user info to app.js
-    await onGoogleLoginSuccess(G.userInfo);
-  } else {
-    // Just connecting Google inside app (fallback)
-    showToast(`Connected as ${G.userInfo?.email || "Google account"}`, "success");
-    refreshCurrentGoogleViews();
-    if (typeof updateDriveSyncStatus === "function") updateDriveSyncStatus("synced");
+  // If Firebase user exists but no access token, get one via GIS
+  if (firebaseAuth?.currentUser && !G.accessToken) {
+    silentTokenRefresh()
+      .then(() => {
+        showToast(`Connected as ${G.userInfo?.email || "Google account"}`, "success");
+        refreshCurrentGoogleViews();
+        if (typeof updateDriveSyncStatus === "function") updateDriveSyncStatus("synced");
+      })
+      .catch(() => {
+        // Silent failed, need interactive — re-sign-in
+        startGoogleLogin();
+      });
+    return;
   }
+  // Not signed in at all
+  startGoogleLogin();
 }
 
 function signOutGoogle(silent = false) {
+  // Revoke Google access token
   if (G.accessToken) {
     try { google.accounts.oauth2.revoke(G.accessToken, () => {}); } catch(e) {}
   }
+  // Sign out of Firebase
+  if (firebaseAuth) {
+    firebaseAuth.signOut().catch(() => {});
+  }
+  _firebaseLoginHandled = false;
   G.isSignedIn  = false;
   G.accessToken = null;
   G.userInfo    = null;
   G.driveDataFileId = null;
+  clearTimeout(G._refreshTimer);
+  clearAccessToken(); // drop the persisted token on sign-out
   if (!silent) {
-    showToast("Signed out of Google", "info");
+    showToast("Signed out", "info");
     refreshCurrentGoogleViews();
     if (typeof updateDriveSyncStatus === "function") updateDriveSyncStatus("offline");
   }
 }
 
 async function fetchGoogleUserInfo() {
+  // With Firebase Auth, user info comes from the Firebase user object.
+  // This function is kept for backward compatibility but uses Firebase data if available.
+  if (firebaseAuth?.currentUser) {
+    const user = firebaseAuth.currentUser;
+    G.userInfo = {
+      name: user.displayName || "Google User",
+      email: user.email || "",
+      picture: user.photoURL || "",
+      sub: user.uid,
+    };
+    return;
+  }
+  // Fallback: fetch from Google API
   try {
     G.userInfo = await gFetch("https://www.googleapis.com/oauth2/v3/userinfo");
     console.log("[Google] Signed in as:", G.userInfo.email);

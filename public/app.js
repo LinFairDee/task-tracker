@@ -12,7 +12,7 @@ let S = {
   activityLog: [],
   notifications: [],
   currentView: "dashboard",
-  theme: "dark",
+  theme: "light",
   calMonth: new Date(),
   gcalMonth: new Date(),
   selectedCalDate: null,
@@ -83,8 +83,14 @@ function loadFromLocalStorage() {
     S.tasks            = d.tasks || [];
     S.activityLog      = d.activityLog || [];
     S.notifications    = d.notifications || [];
-    S.theme            = d.theme || "dark";
+    S.theme            = d.theme || "light";
     S.currentUserId    = d.currentUserId || null;
+    // One-time migration: the app used to default to dark. Flip anyone still
+    // carrying that old default to the new light default (honors later choices).
+    if (!localStorage.getItem("tf_theme_migrated")) {
+      S.theme = "light";
+      localStorage.setItem("tf_theme_migrated", "1");
+    }
     document.documentElement.setAttribute("data-theme", S.theme);
     updateThemeIcon();
   } catch(e) { console.error("Storage load error", e); }
@@ -186,39 +192,46 @@ function showLoginLoading(msg = "Signing in…") {
 
 // Called by google-integration.js after OAuth succeeds
 async function onGoogleLoginSuccess(googleUser) {
-  showLoginLoading("Loading your tasks from Drive…");
+  showLoginLoading("Loading your workspace…");
 
-  // Create or find a user profile for this Google account
-  let user = S.users.find(u => u.googleId === googleUser.sub || u.email === googleUser.email);
-  if (!user) {
-    user = {
-      id: uid(),
-      googleId: googleUser.sub,
-      name: googleUser.name,
-      email: googleUser.email,
-      picture: googleUser.picture,
-      color: AVATAR_COLORS[Math.abs(hashStr(googleUser.email)) % AVATAR_COLORS.length],
-      role: "",
-      createdAt: Date.now(),
-    };
-    S.users.push(user);
-  } else {
-    // Refresh Google info
-    user.name    = googleUser.name;
-    user.picture = googleUser.picture;
-    user.email   = googleUser.email;
+  try {
+    // Create or find a user profile for this Google account
+    let user = S.users.find(u => u.googleId === googleUser.sub || u.email === googleUser.email);
+    if (!user) {
+      user = {
+        id: uid(),
+        googleId: googleUser.sub,
+        name: googleUser.name,
+        email: googleUser.email,
+        picture: googleUser.picture,
+        color: AVATAR_COLORS[Math.abs(hashStr(googleUser.email)) % AVATAR_COLORS.length],
+        role: "",
+        createdAt: Date.now(),
+      };
+      S.users.push(user);
+    } else {
+      // Refresh Google info
+      user.name    = googleUser.name;
+      user.picture = googleUser.picture;
+      user.email   = googleUser.email;
+    }
+    S.currentUserId = user.id;
+
+    // Firestore is the source of truth for tasks + teams. fsBootstrap
+    // upserts the user directory, loads teams, and starts the realtime
+    // task listener (which repopulates S.tasks). Falls back to local-only.
+    if (typeof fsBootstrap === "function") {
+      showLoginLoading("Connecting to your workspace…");
+      await fsBootstrap(googleUser);
+    }
+
+    saveToLocalStorage();
+  } catch (e) {
+    console.error("[Login] post-login step failed:", e);
+  } finally {
+    // Always enter the app — never get stuck on the loading screen
+    enterApp();
   }
-  S.currentUserId = user.id;
-
-  // Try loading from Drive (Drive API must be enabled)
-  const loaded = typeof loadTasksFromDrive === "function" ? await loadTasksFromDrive() : false;
-  if (loaded) {
-    showLoginLoading("Tasks loaded from Drive ✓");
-    await sleep(500);
-  }
-
-  saveToLocalStorage();
-  enterApp();
 }
 
 // Legacy local login
@@ -640,6 +653,22 @@ function renderKanban() {
   const labelFilter = document.getElementById("kanbanLabelFilter")?.value || "";
   let tasks = getFilteredTasks({ userId: userFilter, priority: priorityFilter, label: labelFilter });
 
+  // Apply board tab filter
+  if (activeBoardTab === "mine") {
+    tasks = tasks.filter(t => t.assignee === S.currentUserId);
+  } else if (activeBoardTab === "team") {
+    // Show tasks from direct reports (and their reports) based on hierarchy
+    const myTeam = getTeamMembers(S.currentUserId);
+    if (myTeam.length) {
+      const teamIds = myTeam.map(u => u.id);
+      tasks = tasks.filter(t => teamIds.includes(t.assignee));
+    } else {
+      // No hierarchy set — fallback to all other users' tasks
+      const allOtherIds = S.users.filter(u => u.id !== S.currentUserId).map(u => u.id);
+      tasks = tasks.filter(t => allOtherIds.includes(t.assignee));
+    }
+  }
+
   const board = document.getElementById("kanbanBoard");
   board.innerHTML = STATUSES.map(status => {
     const colTasks = tasks.filter(t => t.status === status)
@@ -672,8 +701,41 @@ function renderKanban() {
       allLabels.map(l => `<option value="${l}" ${l===current?"selected":""}>${esc(l)}</option>`).join("");
   }
 
+  // Update tab counts
+  updateBoardTabCounts();
+
   lucide.createIcons();
 }
+
+// ── Board tab filters ────────────────────────────────────────
+let activeBoardTab = "all";
+
+function setBoardTab(tab) {
+  activeBoardTab = tab;
+  document.querySelectorAll(".tab-filter").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  renderKanban();
+}
+
+function updateBoardTabCounts() {
+  const all = S.tasks.length;
+  const mine = S.tasks.filter(t => t.assignee === S.currentUserId).length;
+  const myTeam = getTeamMembers(S.currentUserId);
+  let team;
+  if (myTeam.length) {
+    const teamIds = myTeam.map(u => u.id);
+    team = S.tasks.filter(t => teamIds.includes(t.assignee)).length;
+  } else {
+    const allOtherIds = S.users.filter(u => u.id !== S.currentUserId).map(u => u.id);
+    team = S.tasks.filter(t => allOtherIds.includes(t.assignee)).length;
+  }
+  const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  el("tabCountAll", all);
+  el("tabCountMine", mine);
+  el("tabCountTeam", team);
+}
+
 
 function renderTaskCard(task) {
   const assignee = task.assignee ? getUserById(task.assignee) : null;
@@ -742,7 +804,9 @@ function renderTaskCard(task) {
           ${attachments.length ? `<span class="task-card-stat"><i data-lucide="paperclip" style="width:11px;height:11px"></i> ${attachments.length}</span>` : ""}
         </div>
         <div class="task-card-footer-right">
-          ${assignee ? `<div class="avatar avatar-sm" style="background:${assignee.color}" title="${esc(assignee.name)}">${initials(assignee.name)}</div>` : ""}
+          <div class="avatar-stack">
+            ${assignee ? `<div class="avatar avatar-sm" style="background:${assignee.color}" title="${esc(assignee.name)}">${initials(assignee.name)}</div>` : ""}
+          </div>
         </div>
       </div>
     </div>
@@ -765,6 +829,7 @@ function toggleCardSubtask(event, taskId, index) {
   if (!task || !task.subtasks || !task.subtasks[index]) return;
   task.subtasks[index].done = !task.subtasks[index].done;
   task.updatedAt = Date.now();
+  if (typeof fsSyncTask === "function") fsSyncTask(task);
   saveToStorage();
   // Re-render just this card in place
   const cardEl = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
@@ -814,6 +879,7 @@ function handleDrop(event, newStatus) {
     task.status = newStatus;
     task.updatedAt = Date.now();
     logActivity("move", task.title, `from ${STATUS_LABELS[old]} to ${STATUS_LABELS[newStatus]}`);
+    if (typeof fsSyncTask === "function") fsSyncTask(task);
     saveToStorage();
     renderKanban();
     updateBadges();
@@ -1337,6 +1403,7 @@ function saveTask() {
       S.tasks[idx] = { ...S.tasks[idx], ...data, updatedAt: Date.now() };
       logActivity("update", title);
       showToast("Task updated!", "success");
+      if (typeof fsSyncTask === "function") fsSyncTask(S.tasks[idx]);
     }
   } else {
     const task = { id: uid(), ...data, createdAt: Date.now(), updatedAt: Date.now(), createdBy: S.currentUserId };
@@ -1344,6 +1411,7 @@ function saveTask() {
     logActivity("create", title);
     showToast("Task created!", "success");
     addNotification(`New task: "${title}"`, "task");
+    if (typeof fsSyncTask === "function") fsSyncTask(task);
   }
 
   saveToStorage();
@@ -1364,6 +1432,7 @@ function confirmDeleteTask(taskId, cb) {
   S.tasks = S.tasks.filter(t => t.id !== taskId);
   logActivity("delete", task.title);
   showToast("Task deleted", "info");
+  if (typeof fsDeleteTask === "function") fsDeleteTask(taskId);
   saveToStorage();
   refreshCurrentView();
   updateBadges();
@@ -1376,35 +1445,147 @@ function closeModalOnBackdrop(event, id) {
 }
 
 // ── TEAM VIEW ─────────────────────────────────────────────────
+// Team hierarchy state
+let teamEditMode = false;
+
+function toggleTeamEditMode() {
+  teamEditMode = !teamEditMode;
+  const btn = document.getElementById("teamEditModeBtn");
+  if (btn) {
+    btn.innerHTML = teamEditMode
+      ? '<i data-lucide="check"></i> Done'
+      : '<i data-lucide="settings-2"></i> Edit Hierarchy';
+    btn.classList.toggle("btn-primary", teamEditMode);
+    btn.classList.toggle("btn-outline", !teamEditMode);
+  }
+  renderTeam();
+  lucide.createIcons();
+}
+
 function renderTeam() {
-  document.getElementById("teamGrid").innerHTML = S.users.map(u => {
-    const assigned = S.tasks.filter(t => t.assignee === u.id).length;
-    const done = S.tasks.filter(t => t.assignee === u.id && t.status === "done").length;
-    const inprog = S.tasks.filter(t => t.assignee === u.id && t.status === "inprogress").length;
-    const isCurrent = u.id === S.currentUserId;
-    return `
-      <div class="team-card">
-        <div class="avatar avatar-lg" style="background:${u.color}">${initials(u.name)}</div>
-        <div class="team-card-name">${esc(u.name)}</div>
-        <div class="team-card-role">${esc(u.role||"Member")}</div>
-        ${isCurrent ? `<span class="current-user-badge">You</span>` : ""}
-        <div class="team-card-stats">
-          <div class="team-stat"><strong>${assigned}</strong>Assigned</div>
-          <div class="team-stat"><strong>${inprog}</strong>Active</div>
-          <div class="team-stat"><strong>${done}</strong>Done</div>
+  const container = document.getElementById("teamHierarchy");
+  if (!container) return;
+
+  // Build hierarchy tree
+  const roots = S.users.filter(u => !u.managerId || !S.users.find(m => m.id === u.managerId));
+  const getReports = (managerId) => S.users.filter(u => u.managerId === managerId);
+
+  function renderMemberNode(user, depth = 0) {
+    const reports = getReports(user.id);
+    const assigned = S.tasks.filter(t => t.assignee === user.id).length;
+    const active = S.tasks.filter(t => t.assignee === user.id && t.status === "inprogress").length;
+    const done = S.tasks.filter(t => t.assignee === user.id && t.status === "done").length;
+    const isCurrent = user.id === S.currentUserId;
+    const dept = user.department || "";
+
+    // In edit mode, show dropdowns for manager and department
+    const editControls = teamEditMode ? `
+      <div class="team-edit-controls">
+        <div class="form-group-inline">
+          <label>Manager</label>
+          <select class="filter-select compact" onchange="setManager('${user.id}', this.value)">
+            <option value="">None (Top level)</option>
+            ${S.users.filter(u => u.id !== user.id).map(u =>
+              `<option value="${u.id}" ${user.managerId === u.id ? 'selected' : ''}>${esc(u.name)}</option>`
+            ).join("")}
+          </select>
         </div>
-        <div class="team-card-actions">
-          <button class="btn btn-sm btn-outline" onclick="openTaskModal(null,{assignee:'${u.id}'})">
-            <i data-lucide="plus"></i> Assign Task
-          </button>
-          ${!isCurrent ? `<button class="btn btn-sm btn-outline" onclick="removeUser('${u.id}')">
-            <i data-lucide="user-minus"></i>
-          </button>` : ""}
+        <div class="form-group-inline">
+          <label>Department</label>
+          <input type="text" class="filter-select compact" value="${esc(dept)}"
+                 placeholder="e.g. Engineering"
+                 onchange="setDepartment('${user.id}', this.value)" />
         </div>
       </div>
+    ` : '';
+
+    return `
+      <div class="team-node" style="margin-left:${depth * 32}px">
+        <div class="team-node-card ${isCurrent ? 'team-node-current' : ''}">
+          <div class="team-node-main">
+            <div class="avatar" style="background:${user.color}">${initials(user.name)}</div>
+            <div class="team-node-info">
+              <div class="team-node-name">
+                ${esc(user.name)}
+                ${isCurrent ? '<span class="you-badge">YOU</span>' : ''}
+                ${reports.length ? `<span class="reports-badge">${reports.length} report${reports.length > 1 ? 's' : ''}</span>` : ''}
+              </div>
+              <div class="team-node-meta">
+                ${dept ? `<span class="dept-tag">${esc(dept)}</span>` : ''}
+                <span>${esc(user.role || 'Member')}</span>
+              </div>
+            </div>
+            <div class="team-node-stats">
+              <div class="team-stat-pill"><strong>${assigned}</strong> tasks</div>
+              <div class="team-stat-pill active-pill"><strong>${active}</strong> active</div>
+              <div class="team-stat-pill done-pill"><strong>${done}</strong> done</div>
+            </div>
+            <div class="team-node-actions">
+              <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openTaskModal(null,{assignee:'${user.id}'})">
+                <i data-lucide="plus"></i> Assign
+              </button>
+              ${!isCurrent ? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();removeUser('${user.id}')">
+                <i data-lucide="user-minus"></i>
+              </button>` : ''}
+            </div>
+          </div>
+          ${editControls}
+        </div>
+        ${reports.length ? `<div class="team-node-reports">${reports.map(r => renderMemberNode(r, depth + 1)).join('')}</div>` : ''}
+      </div>
     `;
-  }).join("") || `<p style="color:var(--text-3)">No team members yet</p>`;
+  }
+
+  container.innerHTML = roots.map(u => renderMemberNode(u, 0)).join('');
+
+  if (!S.users.length) {
+    container.innerHTML = '<p style="color:var(--text-3);text-align:center;padding:40px">No team members yet</p>';
+  }
+
   lucide.createIcons();
+}
+
+function setManager(userId, managerId) {
+  const user = S.users.find(u => u.id === userId);
+  if (!user) return;
+  // Prevent circular: can't set yourself or a descendant as manager
+  if (managerId && isDescendant(managerId, userId)) {
+    showToast("Can't create circular reporting", "warning");
+    renderTeam();
+    return;
+  }
+  user.managerId = managerId || "";
+  saveToStorage();
+  renderTeam();
+}
+
+function setDepartment(userId, dept) {
+  const user = S.users.find(u => u.id === userId);
+  if (!user) return;
+  user.department = dept.trim();
+  saveToStorage();
+  // Don't re-render immediately (user might still be typing)
+}
+
+function isDescendant(checkId, ofId) {
+  // Check if checkId is a descendant of ofId in the hierarchy
+  const reports = S.users.filter(u => u.managerId === ofId);
+  for (const r of reports) {
+    if (r.id === checkId) return true;
+    if (isDescendant(checkId, r.id)) return true;
+  }
+  return false;
+}
+
+function getTeamMembers(userId) {
+  // Get all direct reports (and their reports) under a user
+  const result = [];
+  const reports = S.users.filter(u => u.managerId === userId);
+  for (const r of reports) {
+    result.push(r);
+    result.push(...getTeamMembers(r.id));
+  }
+  return result;
 }
 
 function removeUser(userId) {
