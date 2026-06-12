@@ -336,7 +336,7 @@ function updateSidebarUser() {
     av.innerHTML = "";
     av.textContent = initials(u.name);
   }
-  document.getElementById("sidebarUserName").textContent = u.name;
+  document.getElementById("sidebarUserName").textContent = (u.name || "").trim().split(/\s+/)[0] || u.name;
   document.getElementById("sidebarUserRole").textContent = u.role || u.email || "Member";
   const commentAv = document.getElementById("commentAvatar");
   if (commentAv) { commentAv.style.background = u.color; commentAv.textContent = initials(u.name); }

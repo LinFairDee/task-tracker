@@ -15,6 +15,7 @@ const FS = {
   unsubTeams: null,
   unsubDir: null,
   ready: false,
+  teamsLoadedOnce: false, // so we only auto-pick the default team once per session
 };
 
 const ACTIVE_TEAM_KEY = "tf_activeTeam";
@@ -146,11 +147,23 @@ function fsSubscribeMyTeams() {
     .where("memberIds", "array-contains", FS.myUid)
     .onSnapshot(snap => {
       FS.teams = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // On the first load, default to my team (one-team-per-user model) instead
+      // of Personal, so the board shows immediately without switching.
+      if (!FS.teamsLoadedOnce) {
+        FS.teamsLoadedOnce = true;
+        if (FS.teams.length > 0) {
+          fsActivateTeam(FS.teams[0].id);
+          return;
+        }
+      }
+
       // If the active named team disappeared, fall back to personal
       if (!fsIsPersonal(FS.activeTeamId) && !FS.teams.find(t => t.id === FS.activeTeamId)) {
         fsActivateTeam(fsPersonalTeamId(FS.myUid));
       } else {
         fsSyncAppUsers();
+        fsRenderTeamSwitcher();
         if (S.currentView === "team" && typeof renderTeam === "function") renderTeam();
       }
     }, err => console.warn("[Firestore] teams listen error:", err.message));
@@ -187,19 +200,44 @@ function fsDeleteTask(taskId) {
 }
 
 // ── Team management ───────────────────────────────────────────
+// Populate the global team switcher in the topbar (visible on every page).
+function fsRenderTeamSwitcher() {
+  const sel = document.getElementById("globalTeamSwitcher");
+  if (!sel) return;
+  if (!fsReady()) { sel.classList.add("hidden"); return; }
+  sel.classList.remove("hidden");
+  sel.innerHTML = [
+    `<option value="${fsPersonalTeamId(FS.myUid)}" ${fsIsPersonal(FS.activeTeamId) ? "selected" : ""}>Personal (just me)</option>`,
+    ...FS.teams.map(t => `<option value="${t.id}" ${t.id === FS.activeTeamId ? "selected" : ""}>${esc(t.name)}</option>`),
+  ].join("");
+}
+
 async function fsActivateTeam(teamId) {
   FS.activeTeamId = teamId;
   try { localStorage.setItem(ACTIVE_TEAM_KEY, teamId); } catch (e) {}
   fsSyncAppUsers();
   fsSubscribeTasks();                 // re-scope tasks to the new team
+  fsRenderTeamSwitcher();
   if (typeof renderTeam === "function") renderTeam();
   if (typeof refreshCurrentView === "function") refreshCurrentView();
+}
+
+// How many teams a given user already belongs to (one-team-per-user enforcement)
+async function fsCountUserTeams(uid) {
+  const snap = await FS.db.collection("teams")
+    .where("memberIds", "array-contains", uid).get();
+  return snap.size;
 }
 
 async function fsCreateTeam(name) {
   if (!fsReady()) { showToast("Firestore not ready", "warning"); return; }
   name = (name || "").trim();
   if (!name) return;
+  // One team per user: if I'm already in a team, block.
+  if (FS.teams.length > 0) {
+    showToast("You're already in a team. Leave or delete it before creating another.", "warning");
+    return;
+  }
   try {
     const ref = await FS.db.collection("teams").add({
       name,
@@ -219,7 +257,14 @@ async function fsAddMember(uid) {
   if (!fsReady()) return;
   const team = fsActiveTeam();
   if (!team) { showToast("Create a team first", "warning"); return; }
+  if ((team.memberIds || []).includes(uid)) { showToast("Already in this team", "info"); return; }
   try {
+    // One team per user: don't add someone who already belongs to a team.
+    const existing = await fsCountUserTeams(uid);
+    if (existing > 0) {
+      showToast("That user is already in another team.", "warning");
+      return;
+    }
     await FS.db.collection("teams").doc(team.id).update({
       memberIds: firebase.firestore.FieldValue.arrayUnion(uid),
     });
@@ -243,6 +288,22 @@ async function fsRemoveMember(uid) {
   } catch (e) {
     console.error("[Firestore] remove member failed:", e);
     showToast("Remove member failed: " + e.message, "error");
+  }
+}
+
+async function fsDeleteTeam() {
+  if (!fsReady()) return;
+  const team = fsActiveTeam();
+  if (!team) { showToast("No team selected", "warning"); return; }
+  if (team.ownerId !== FS.myUid) { showToast("Only the owner can delete the team", "warning"); return; }
+  if (!confirm(`Delete team "${team.name}"? This can't be undone.`)) return;
+  try {
+    await FS.db.collection("teams").doc(team.id).delete();
+    showToast(`Team "${team.name}" deleted`, "success");
+    await fsActivateTeam(fsPersonalTeamId(FS.myUid)); // fall back to Personal
+  } catch (e) {
+    console.error("[Firestore] delete team failed:", e);
+    showToast("Delete team failed: " + e.message, "error");
   }
 }
 
@@ -270,6 +331,7 @@ function renderTeam() {
       </select>
       <button class="btn btn-sm btn-outline" onclick="promptCreateTeam()"><i data-lucide="plus"></i> New Team</button>
       ${team ? `<button class="btn btn-sm btn-primary" onclick="openAddMemberModal()"><i data-lucide="user-plus"></i> Add Member</button>` : ""}
+      ${team && team.ownerId === FS.myUid ? `<button class="btn btn-sm btn-outline" onclick="fsDeleteTeam()"><i data-lucide="trash-2"></i> Delete Team</button>` : ""}
       <span style="margin-left:auto;color:var(--text-3);font-size:12px">${memberIds.length} member${memberIds.length !== 1 ? "s" : ""}</span>
     </div>`;
 
