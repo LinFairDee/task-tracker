@@ -776,12 +776,17 @@
       <button class="icon-btn" onclick="closeWeeklyModal()"><i data-lucide="x"></i></button>
     </div>
     <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:14px">
-      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-3)">
-        <i data-lucide="user" style="width:14px;height:14px"></i>
-        Sending to: <strong id="weeklyRecipientName" style="color:var(--text-1)">P'Ong</strong>
+      <div class="form-group">
+        <label class="form-label">Send to</label>
+        <div style="display:flex;gap:8px">
+          <select class="form-input" id="weeklyRecipientPicker" style="flex:1" onchange="onWeeklyRecipientPick()"></select>
+          <button class="btn btn-outline btn-sm" onclick="addWeeklyRecipient()" title="Add a recipient">
+            <i data-lucide="plus"></i>
+          </button>
+        </div>
       </div>
       <div class="form-group">
-        <label class="form-label">To</label>
+        <label class="form-label">To (email)</label>
         <input type="email" class="form-input" id="weeklyTo" placeholder="recipient@email.com" />
       </div>
       <div class="form-group">

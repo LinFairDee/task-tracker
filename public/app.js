@@ -1912,14 +1912,15 @@ function getWeeklyTasks() {
   };
 }
 
-function generateWeeklyEmailBody() {
+function generateWeeklyEmailBody(recipientName) {
   const tasks = getWeeklyTasks();
   const { start, end } = getWeekRange();
   const weekLabel = `${start.toLocaleDateString("en-US", {month:"short",day:"numeric"})} – ${end.toLocaleDateString("en-US", {month:"short",day:"numeric",year:"numeric"})}`;
   const user = getUserById(S.currentUserId);
   const name = user ? user.name : "Team member";
+  const greet = (recipientName && recipientName.trim()) ? recipientName.trim() : "team";
 
-  let body = `Hi P'Ong,\n\nHere's my weekly progress update for ${weekLabel}:\n\n`;
+  let body = `Hi ${greet},\n\nHere's my weekly progress update for ${weekLabel}:\n\n`;
 
   if (tasks.done.length) {
     body += `✅ Completed (${tasks.done.length}):\n`;
@@ -1982,50 +1983,117 @@ async function lookupContactEmail(name) {
   return null;
 }
 
-async function openWeeklyUpdateDraft() {
+// ── Configurable recipient list (team members + saved custom) ──
+const WEEKLY_RECIP_KEY = "tf_weekly_recipients";
+const WEEKLY_LAST_KEY  = "tf_weekly_last";
+
+function getSavedRecipients() {
+  try { return JSON.parse(localStorage.getItem(WEEKLY_RECIP_KEY)) || []; } catch (e) { return []; }
+}
+function setSavedRecipients(list) {
+  try { localStorage.setItem(WEEKLY_RECIP_KEY, JSON.stringify(list)); } catch (e) {}
+}
+// Team members (with email, excluding myself) + saved custom recipients, deduped
+function getAllRecipients() {
+  const map = new Map();
+  (S.users || []).forEach(u => {
+    if (u.email && u.id !== S.currentUserId) map.set(u.email.toLowerCase(), { name: u.name || u.email, email: u.email });
+  });
+  getSavedRecipients().forEach(r => {
+    if (r.email) map.set(r.email.toLowerCase(), { name: r.name || r.email, email: r.email });
+  });
+  return Array.from(map.values());
+}
+
+function populateWeeklyRecipientPicker(selectEmail) {
+  const sel = document.getElementById("weeklyRecipientPicker");
+  if (!sel) return;
+  const recips = getAllRecipients();
+  const chosen = (selectEmail || localStorage.getItem(WEEKLY_LAST_KEY) || (recips[0] && recips[0].email) || "").toLowerCase();
+  sel.innerHTML = recips.length
+    ? recips.map(r => `<option value="${esc(r.email)}" data-name="${esc(r.name)}" ${r.email.toLowerCase() === chosen ? "selected" : ""}>${esc(r.name)} — ${esc(r.email)}</option>`).join("")
+    : `<option value="">No recipients yet — click + to add</option>`;
+}
+
+function onWeeklyRecipientPick() {
+  const sel = document.getElementById("weeklyRecipientPicker");
+  if (!sel) return;
+  const opt = sel.options[sel.selectedIndex];
+  const email = opt ? opt.value : "";
+  const name  = opt && opt.dataset.name ? opt.dataset.name : (email ? email.split("@")[0] : "team");
+  const toEl = document.getElementById("weeklyTo");
+  if (toEl) toEl.value = email;
+  refreshWeeklyDraft(name);
+}
+
+function refreshWeeklyDraft(recipientName) {
+  const { start, end } = getWeekRange();
+  const weekLabel = `${start.toLocaleDateString("en-US", {month:"short",day:"numeric"})} – ${end.toLocaleDateString("en-US", {month:"short",day:"numeric"})}`;
+  const subj = document.getElementById("weeklySubject");
+  const body = document.getElementById("weeklyBody");
+  if (subj) subj.value = `Weekly Update — ${weekLabel}`;
+  if (body) body.value = generateWeeklyEmailBody(recipientName);
+}
+
+function openWeeklyUpdateDraft() {
   if (!G.isSignedIn) {
     showToast("Please connect Google first to send emails", "warning");
     return;
   }
-
-  // Show loading state
-  showToast("Looking up P'Ong's contact...", "info");
-
-  // Lookup P'Ong in Google Contacts
-  let recipientEmail = "";
-  let recipientName = "P'Ong";
-  const contact = await lookupContactEmail("Ong");
-  if (contact) {
-    recipientEmail = contact.email;
-    recipientName = contact.name;
-    showToast(`Found: ${recipientName} (${recipientEmail})`, "success");
-  } else {
-    // Try alternative searches
-    const alt = await lookupContactEmail("P'Ong") || await lookupContactEmail("Pong");
-    if (alt) {
-      recipientEmail = alt.email;
-      recipientName = alt.name;
-      showToast(`Found: ${recipientName} (${recipientEmail})`, "success");
-    } else {
-      showToast("Couldn't find P'Ong in contacts. Please enter email manually.", "warning");
-    }
-  }
-
-  // Generate draft
-  const { start, end } = getWeekRange();
-  const weekLabel = `${start.toLocaleDateString("en-US", {month:"short",day:"numeric"})} – ${end.toLocaleDateString("en-US", {month:"short",day:"numeric"})}`;
-  const subject = `Weekly Update — ${weekLabel}`;
-  const body = generateWeeklyEmailBody();
-
-  // Populate the draft modal
-  document.getElementById("weeklyTo").value = recipientEmail;
-  document.getElementById("weeklySubject").value = subject;
-  document.getElementById("weeklyBody").value = body;
-  document.getElementById("weeklyRecipientName").textContent = recipientName;
-
-  // Show modal
+  populateWeeklyRecipientPicker();
+  onWeeklyRecipientPick(); // fills To + subject + body from the current selection
   document.getElementById("weeklyUpdateModal").classList.remove("hidden");
   lucide.createIcons();
+}
+
+// ── Add / configure a recipient (modal, no native prompt) ──
+function addWeeklyRecipient() {
+  let modal = document.getElementById("addRecipientModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "addRecipientModal";
+    modal.className = "modal-overlay hidden";
+    modal.innerHTML = `
+      <div class="modal" style="max-width:420px" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Add recipient</h3>
+          <button class="icon-btn" onclick="closeModal('addRecipientModal')"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">Name</label>
+          <input id="newRecipName" class="form-input" style="width:100%;margin-bottom:12px" placeholder="e.g. P'Ong" />
+          <label class="form-label">Email</label>
+          <input id="newRecipEmail" type="email" class="form-input" style="width:100%" placeholder="name@fairdee.co.th"
+                 onkeydown="if(event.key==='Enter')submitAddRecipient()" />
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+            <button class="btn btn-outline" onclick="closeModal('addRecipientModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="submitAddRecipient()">Save</button>
+          </div>
+        </div>
+      </div>`;
+    modal.addEventListener("click", () => closeModal("addRecipientModal"));
+    document.body.appendChild(modal);
+  }
+  modal.classList.remove("hidden");
+  document.getElementById("newRecipName").value = "";
+  document.getElementById("newRecipEmail").value = "";
+  setTimeout(() => document.getElementById("newRecipName")?.focus(), 50);
+  lucide.createIcons();
+}
+
+function submitAddRecipient() {
+  const name  = document.getElementById("newRecipName").value.trim();
+  const email = document.getElementById("newRecipEmail").value.trim();
+  if (!email) { showToast("Enter an email", "warning"); return; }
+  const list = getSavedRecipients();
+  if (!list.find(r => r.email.toLowerCase() === email.toLowerCase())) {
+    list.push({ name: name || email.split("@")[0], email });
+    setSavedRecipients(list);
+  }
+  closeModal("addRecipientModal");
+  populateWeeklyRecipientPicker(email);
+  onWeeklyRecipientPick();
+  showToast("Recipient added", "success");
 }
 
 async function sendWeeklyUpdate() {
@@ -2044,6 +2112,13 @@ async function sendWeeklyUpdate() {
 
   try {
     await gFetch(`${GMAIL_BASE}/messages/send`, { method: "POST", body: JSON.stringify({ raw }) });
+    // Remember this recipient for next time + add to the saved list
+    try { localStorage.setItem(WEEKLY_LAST_KEY, to); } catch (e) {}
+    const list = getSavedRecipients();
+    if (!list.find(r => r.email.toLowerCase() === to.toLowerCase())) {
+      list.push({ name: to.split("@")[0], email: to });
+      setSavedRecipients(list);
+    }
     showToast("Weekly update sent to " + to + "!", "success");
     closeModal("weeklyUpdateModal");
   } catch (e) {
