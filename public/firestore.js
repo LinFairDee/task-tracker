@@ -66,6 +66,76 @@ function fsActiveTeam() {
   return FS.teams.find(t => t.id === FS.activeTeamId) || null;
 }
 
+// Member uids of the currently active team (empty in Personal mode)
+function getMyTeamMemberIds() {
+  const team = fsActiveTeam();
+  return team ? (team.memberIds || []) : [];
+}
+
+// ── Reporting hierarchy (stored on the team doc) ──────────────
+// team.hierarchy   = { memberUid: managerUid }
+// team.departments = { memberUid: "Engineering" }
+function fsTeamHierarchy() { const t = fsActiveTeam(); return (t && t.hierarchy) || {}; }
+function fsTeamDepartments() { const t = fsActiveTeam(); return (t && t.departments) || {}; }
+
+function fsDirectReports(managerUid) {
+  const h = fsTeamHierarchy();
+  return getMyTeamMemberIds().filter(uid => h[uid] === managerUid);
+}
+
+// All reports under a manager (direct + indirect) in the active team
+function getMyReportIds(managerUid) {
+  const out = [];
+  (function visit(mgr) {
+    fsDirectReports(mgr).forEach(uid => {
+      if (out.includes(uid)) return;
+      out.push(uid);
+      visit(uid);
+    });
+  })(managerUid);
+  return out;
+}
+
+function fsWouldCycle(memberUid, managerUid) {
+  const h = fsTeamHierarchy();
+  let cur = managerUid; const seen = new Set();
+  while (cur) {
+    if (cur === memberUid) return true;
+    if (seen.has(cur)) break;
+    seen.add(cur); cur = h[cur];
+  }
+  return false;
+}
+
+async function fsSetManager(memberUid, managerUid) {
+  const team = fsActiveTeam();
+  if (!team) return;
+  if (managerUid && fsWouldCycle(memberUid, managerUid)) {
+    showToast("Can't create circular reporting", "warning");
+    renderTeam();
+    return;
+  }
+  const hierarchy = { ...(team.hierarchy || {}) };
+  if (managerUid) hierarchy[memberUid] = managerUid; else delete hierarchy[memberUid];
+  try { await FS.db.collection("teams").doc(team.id).update({ hierarchy }); }
+  catch (e) { showToast("Update failed: " + e.message, "error"); }
+}
+
+async function fsSetDepartment(memberUid, dept) {
+  const team = fsActiveTeam();
+  if (!team) return;
+  const departments = { ...(team.departments || {}) };
+  dept = (dept || "").trim();
+  if (dept) departments[memberUid] = dept; else delete departments[memberUid];
+  try { await FS.db.collection("teams").doc(team.id).update({ departments }); }
+  catch (e) { showToast("Update failed: " + e.message, "error"); }
+}
+
+function toggleHierarchyEdit() {
+  FS.teamEditMode = !FS.teamEditMode;
+  renderTeam();
+}
+
 // Recompute S.users from the active team's members (or just me when personal)
 function fsSyncAppUsers() {
   const team = fsActiveTeam();
@@ -281,8 +351,17 @@ async function fsRemoveMember(uid) {
   if (!team) return;
   if (uid === team.ownerId) { showToast("Can't remove the team owner", "warning"); return; }
   try {
+    // Clean up the hierarchy: drop the member and move their reports up
+    const hierarchy = { ...(team.hierarchy || {}) };
+    const departments = { ...(team.departments || {}) };
+    const removedMgr = hierarchy[uid];
+    delete hierarchy[uid]; delete departments[uid];
+    Object.keys(hierarchy).forEach(k => {
+      if (hierarchy[k] === uid) { if (removedMgr) hierarchy[k] = removedMgr; else delete hierarchy[k]; }
+    });
     await FS.db.collection("teams").doc(team.id).update({
       memberIds: firebase.firestore.FieldValue.arrayRemove(uid),
+      hierarchy, departments,
     });
     showToast("Member removed", "info");
   } catch (e) {
@@ -320,8 +399,12 @@ function renderTeam() {
 
   const team = fsActiveTeam();
   const memberIds = team ? (team.memberIds || []) : [FS.myUid];
+  const edit = !!FS.teamEditMode && !!team;
+  const h = fsTeamHierarchy();
+  const depts = fsTeamDepartments();
+  const memberSet = new Set(memberIds);
 
-  // Team switcher options: personal + my named teams
+  // Team switcher + actions
   const switcher = `
     <div class="team-toolbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
       <label style="color:var(--text-2);font-size:13px">Team</label>
@@ -331,36 +414,66 @@ function renderTeam() {
       </select>
       <button class="btn btn-sm btn-outline" onclick="promptCreateTeam()"><i data-lucide="plus"></i> New Team</button>
       ${team ? `<button class="btn btn-sm btn-primary" onclick="openAddMemberModal()"><i data-lucide="user-plus"></i> Add Member</button>` : ""}
+      ${team ? `<button class="btn btn-sm ${edit ? "btn-primary" : "btn-outline"}" onclick="toggleHierarchyEdit()">${edit ? '<i data-lucide="check"></i> Done' : '<i data-lucide="settings-2"></i> Edit Hierarchy'}</button>` : ""}
       ${team && team.ownerId === FS.myUid ? `<button class="btn btn-sm btn-outline" onclick="fsDeleteTeam()"><i data-lucide="trash-2"></i> Delete Team</button>` : ""}
       <span style="margin-left:auto;color:var(--text-3);font-size:12px">${memberIds.length} member${memberIds.length !== 1 ? "s" : ""}</span>
     </div>`;
 
-  const cards = memberIds.map(uid => {
+  const nodeCard = (uid) => {
     const u = fsToAppUser(uid);
     const assigned = S.tasks.filter(t => t.assignee === uid).length;
     const done = S.tasks.filter(t => t.assignee === uid && t.status === "done").length;
     const isMe = uid === FS.myUid;
     const isOwner = team && uid === team.ownerId;
+    const reports = fsDirectReports(uid);
+    const dept = depts[uid] || "";
+    const editControls = edit ? `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <div style="flex:1;min-width:150px">
+          <label style="font-size:11px;color:var(--text-3)">Manager</label>
+          <select class="filter-select" style="width:100%" onchange="fsSetManager('${uid}', this.value)">
+            <option value="">None (top level)</option>
+            ${memberIds.filter(m => m !== uid).map(m => `<option value="${m}" ${h[uid] === m ? "selected" : ""}>${esc(fsToAppUser(m).name)}</option>`).join("")}
+          </select>
+        </div>
+        <div style="flex:1;min-width:150px">
+          <label style="font-size:11px;color:var(--text-3)">Department</label>
+          <input class="filter-select" style="width:100%" value="${esc(dept)}" placeholder="e.g. Engineering" onchange="fsSetDepartment('${uid}', this.value)" />
+        </div>
+      </div>` : "";
     return `
-      <div class="team-node-card" style="display:flex;align-items:center;gap:14px;padding:14px;margin-bottom:10px">
-        ${u.picture
-          ? `<img src="${u.picture}" class="avatar" style="object-fit:cover" />`
-          : `<div class="avatar" style="background:${u.color}">${initials(u.name)}</div>`}
-        <div style="flex:1">
-          <div style="font-weight:600">${esc(u.name)}
-            ${isMe ? '<span class="you-badge">YOU</span>' : ""}
-            ${isOwner ? '<span class="reports-badge">Owner</span>' : ""}</div>
-          <div style="color:var(--text-3);font-size:12px">${esc(u.email || "")}</div>
+      <div class="team-node-card" style="padding:14px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:14px">
+          ${u.picture
+            ? `<img src="${u.picture}" class="avatar" style="object-fit:cover" />`
+            : `<div class="avatar" style="background:${u.color}">${initials(u.name)}</div>`}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600">${esc(u.name)}
+              ${isMe ? '<span class="you-badge">YOU</span>' : ""}
+              ${isOwner ? '<span class="reports-badge">Owner</span>' : ""}
+              ${reports.length ? `<span class="reports-badge">${reports.length} report${reports.length > 1 ? "s" : ""}</span>` : ""}</div>
+            <div style="color:var(--text-3);font-size:12px">${dept ? esc(dept) + " · " : ""}${esc(u.email || "")}</div>
+          </div>
+          <div class="team-node-stats" style="display:flex;gap:8px">
+            <div class="team-stat-pill"><strong>${assigned}</strong> tasks</div>
+            <div class="team-stat-pill done-pill"><strong>${done}</strong> done</div>
+          </div>
+          ${edit && !isOwner ? `<button class="btn btn-sm btn-outline" onclick="fsRemoveMember('${uid}')"><i data-lucide="user-minus"></i></button>` : ""}
         </div>
-        <div class="team-node-stats" style="display:flex;gap:8px">
-          <div class="team-stat-pill"><strong>${assigned}</strong> tasks</div>
-          <div class="team-stat-pill done-pill"><strong>${done}</strong> done</div>
-        </div>
-        ${team && !isOwner ? `<button class="btn btn-sm btn-outline" onclick="fsRemoveMember('${uid}')"><i data-lucide="user-minus"></i></button>` : ""}
+        ${editControls}
       </div>`;
-  }).join("");
+  };
 
-  container.innerHTML = switcher + (cards || `<p style="color:var(--text-3);text-align:center;padding:30px">No members yet</p>`);
+  // Build the org tree from the hierarchy map
+  const isRoot = (uid) => { const m = h[uid]; return !m || !memberSet.has(m); };
+  const nodeTree = (uid, depth) => {
+    const childrenHtml = fsDirectReports(uid).map(r => nodeTree(r, depth + 1)).join("");
+    const indent = depth > 0 ? "margin-left:24px;border-left:2px solid var(--border);padding-left:14px" : "";
+    return `<div style="${indent}">${nodeCard(uid)}${childrenHtml}</div>`;
+  };
+  const tree = memberIds.filter(isRoot).map(uid => nodeTree(uid, 0)).join("");
+
+  container.innerHTML = switcher + (tree || `<p style="color:var(--text-3);text-align:center;padding:30px">No members yet</p>`);
   if (window.lucide) lucide.createIcons();
 }
 

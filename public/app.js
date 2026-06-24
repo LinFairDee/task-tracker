@@ -322,6 +322,8 @@ function initApp() {
   updateBadges();
   updateDriveSyncStatus("synced");
   lucide.createIcons();
+  // Sync Google services (Gmail / Drive / Calendar) when landing in the app
+  if (typeof syncAllGoogleServices === "function") syncAllGoogleServices(true);
 }
 
 function updateSidebarUser() {
@@ -378,22 +380,28 @@ function showUserMenu() {
   const dd = document.getElementById("userMenuDropdown");
   dd.classList.toggle("hidden");
   const list = document.getElementById("userMenuList");
-  list.innerHTML = S.users.map(u => `
-    <button class="dropdown-item" onclick="switchUser('${u.id}')">
-      <div class="avatar avatar-sm" style="background:${u.color}">${initials(u.name)}</div>
-      <span>${esc(u.name)}</span>
-      ${u.id === S.currentUserId ? '<span style="color:var(--accent-light);font-size:10px">●</span>' : ""}
-    </button>
-  `).join("");
+  const me = getCurrentUser();
+  // Show only the signed-in account — switching to other accounts is not allowed.
+  list.innerHTML = me ? `
+    <div class="dropdown-item" style="cursor:default">
+      ${me.picture
+        ? `<img src="${me.picture}" class="avatar avatar-sm" style="object-fit:cover" />`
+        : `<div class="avatar avatar-sm" style="background:${me.color}">${initials(me.name)}</div>`}
+      <div style="display:flex;flex-direction:column;line-height:1.25;min-width:0">
+        <span style="overflow:hidden;text-overflow:ellipsis">${esc(me.name)}</span>
+        <span style="font-size:11px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis">${esc(me.email || "")}</span>
+      </div>
+      <span style="margin-left:auto;color:var(--success);font-size:10px">●</span>
+    </div>` : "";
   lucide.createIcons();
 }
 
 function switchUser(userId) {
-  S.currentUserId = userId;
+  // Account switching is disabled — you are signed in via your own Google account.
   document.getElementById("userMenuDropdown").classList.add("hidden");
-  updateSidebarUser();
-  refreshCurrentView();
-  showToast(`Switched to ${getCurrentUser().name}`, "info");
+  if (userId !== S.currentUserId) {
+    showToast("You can only use your own signed-in account", "warning");
+  }
 }
 
 function showAddUser() {
@@ -448,6 +456,11 @@ function showView(view) {
   };
   if (renders[view]) renders[view]();
   lucide.createIcons();
+
+  // Landing on the dashboard (main page) refreshes Google services (throttled)
+  if (view === "dashboard" && typeof syncAllGoogleServices === "function") {
+    syncAllGoogleServices();
+  }
 }
 
 function refreshCurrentView() { showView(S.currentView); }
@@ -657,16 +670,9 @@ function renderKanban() {
   if (activeBoardTab === "mine") {
     tasks = tasks.filter(t => t.assignee === S.currentUserId);
   } else if (activeBoardTab === "team") {
-    // Show tasks from direct reports (and their reports) based on hierarchy
-    const myTeam = getTeamMembers(S.currentUserId);
-    if (myTeam.length) {
-      const teamIds = myTeam.map(u => u.id);
-      tasks = tasks.filter(t => teamIds.includes(t.assignee));
-    } else {
-      // No hierarchy set — fallback to all other users' tasks
-      const allOtherIds = S.users.filter(u => u.id !== S.currentUserId).map(u => u.id);
-      tasks = tasks.filter(t => allOtherIds.includes(t.assignee));
-    }
+    // Tasks assigned to my teammates (members of my active Firestore team)
+    const teamIds = myTeammateIds();
+    tasks = tasks.filter(t => teamIds.includes(t.assignee));
   }
 
   const board = document.getElementById("kanbanBoard");
@@ -710,6 +716,11 @@ function renderKanban() {
 // ── Board tab filters ────────────────────────────────────────
 let activeBoardTab = "all";
 
+// "My Team" = everyone who reports to me (direct + indirect) in the team hierarchy
+function myTeammateIds() {
+  return (typeof getMyReportIds === "function") ? getMyReportIds(S.currentUserId) : [];
+}
+
 function setBoardTab(tab) {
   activeBoardTab = tab;
   document.querySelectorAll(".tab-filter").forEach(btn => {
@@ -719,17 +730,12 @@ function setBoardTab(tab) {
 }
 
 function updateBoardTabCounts() {
-  const all = S.tasks.length;
-  const mine = S.tasks.filter(t => t.assignee === S.currentUserId).length;
-  const myTeam = getTeamMembers(S.currentUserId);
-  let team;
-  if (myTeam.length) {
-    const teamIds = myTeam.map(u => u.id);
-    team = S.tasks.filter(t => teamIds.includes(t.assignee)).length;
-  } else {
-    const allOtherIds = S.users.filter(u => u.id !== S.currentUserId).map(u => u.id);
-    team = S.tasks.filter(t => allOtherIds.includes(t.assignee)).length;
-  }
+  // Counts reflect open (not Done) tasks only
+  const open = S.tasks.filter(t => t.status !== "done");
+  const all = open.length;
+  const mine = open.filter(t => t.assignee === S.currentUserId).length;
+  const teamIds = myTeammateIds();
+  const team = open.filter(t => teamIds.includes(t.assignee)).length;
   const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   el("tabCountAll", all);
   el("tabCountMine", mine);
@@ -737,8 +743,13 @@ function updateBoardTabCounts() {
 }
 
 
+// Remember which cards have their subtask list expanded, so re-renders
+// (including realtime Firestore updates) don't collapse them mid-click.
+const expandedSubtasks = new Set();
+
 function renderTaskCard(task) {
   const assignee = task.assignee ? getUserById(task.assignee) : null;
+  const isExpanded = expandedSubtasks.has(task.id);
   const subtasks = task.subtasks || [];
   const doneSubtasks = subtasks.filter(s => s.done).length;
   const subtaskPct = subtasks.length ? Math.round((doneSubtasks / subtasks.length) * 100) : 0;
@@ -785,14 +796,14 @@ function renderTaskCard(task) {
               <span class="subtask-progress-label"><i data-lucide="git-branch" style="width:11px;height:11px"></i> Subtasks</span>
               <span style="display:flex;align-items:center;gap:6px">
                 <span class="subtask-progress-count">${doneSubtasks}/${subtasks.length}</span>
-                <span class="chevron" id="chevron-${task.id}">▾</span>
+                <span class="chevron${isExpanded ? ' expanded' : ''}" id="chevron-${task.id}">▾</span>
               </span>
             </div>
           </div>
           <div class="subtask-progress-bar">
             <div class="subtask-progress-fill ${subtaskPct === 100 ? 'complete' : ''}" style="width:${subtaskPct}%"></div>
           </div>
-          <div class="subtask-list" id="subtask-list-${task.id}">
+          <div class="subtask-list${isExpanded ? ' expanded' : ''}" id="subtask-list-${task.id}">
             ${subtaskItemsHtml}
           </div>
         </div>
@@ -800,6 +811,7 @@ function renderTaskCard(task) {
       <div class="task-card-footer">
         <div class="task-card-footer-left">
           ${task.dueDate ? `<span class="task-card-due ${dueDateClass}"><i data-lucide="calendar" style="width:11px;height:11px"></i> ${formatDate(task.dueDate)}</span>` : ""}
+          ${task.location ? `<a class="task-card-stat" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((task.locationLat && task.locationLng) ? task.locationLat + ',' + task.locationLng : task.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(task.location)}"><i data-lucide="map-pin" style="width:11px;height:11px"></i> ${esc(task.location.length > 18 ? task.location.slice(0,18) + '…' : task.location)}</a>` : ""}
           ${comments.length ? `<span class="task-card-stat"><i data-lucide="message-circle" style="width:11px;height:11px"></i> ${comments.length}</span>` : ""}
           ${attachments.length ? `<span class="task-card-stat"><i data-lucide="paperclip" style="width:11px;height:11px"></i> ${attachments.length}</span>` : ""}
         </div>
@@ -815,12 +827,13 @@ function renderTaskCard(task) {
 
 function toggleSubtaskExpand(event, taskId) {
   event.stopPropagation();
+  if (expandedSubtasks.has(taskId)) expandedSubtasks.delete(taskId);
+  else expandedSubtasks.add(taskId);
+  const open = expandedSubtasks.has(taskId);
   const list = document.getElementById("subtask-list-" + taskId);
   const chevron = document.getElementById("chevron-" + taskId);
-  if (list) {
-    list.classList.toggle("expanded");
-    if (chevron) chevron.classList.toggle("expanded");
-  }
+  if (list) list.classList.toggle("expanded", open);
+  if (chevron) chevron.classList.toggle("expanded", open);
 }
 
 function toggleCardSubtask(event, taskId, index) {
@@ -1165,6 +1178,117 @@ function clearDueDate(e) {
 }
 
 // ── TASK MODAL ────────────────────────────────────────────────
+// ── Google Maps loader (Places library for autocomplete) ─────
+let _mapsLoading = null;
+function loadGoogleMaps() {
+  if (window.google && window.google.maps && window.google.maps.importLibrary) return Promise.resolve();
+  if (_mapsLoading) return _mapsLoading;
+  const key = (typeof firebaseConfig !== "undefined" && firebaseConfig.apiKey) ||
+              (typeof GOOGLE_CONFIG !== "undefined" && GOOGLE_CONFIG.apiKey) || "";
+  if (!key) return Promise.reject(new Error("No Maps API key in config.js"));
+  _mapsLoading = new Promise((resolve, reject) => {
+    window.__tfMapsReady = () => resolve();
+    const s = document.createElement("script");
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places&loading=async&callback=__tfMapsReady`;
+    s.async = true;
+    s.onerror = () => { _mapsLoading = null; reject(new Error("Google Maps failed to load — enable Maps JavaScript API + Places API (New) + billing")); };
+    document.head.appendChild(s);
+  });
+  return _mapsLoading;
+}
+
+function setTaskLocationValue(addr, lat, lng) {
+  const input = document.getElementById("taskLocation");
+  if (input) input.value = addr || "";
+  document.getElementById("taskLocationLat").value = (lat === 0 || lat) ? lat : "";
+  document.getElementById("taskLocationLng").value = (lng === 0 || lng) ? lng : "";
+  renderTaskLocation();
+}
+
+// ── Custom Places autocomplete dropdown (matches the app design) ──
+let _locTimer = null, _locSession = null;
+
+function onLocationInput() {
+  const q = (document.getElementById("taskLocation").value || "").trim();
+  document.getElementById("taskLocationLat").value = "";
+  document.getElementById("taskLocationLng").value = "";
+  renderTaskLocation();
+  clearTimeout(_locTimer);
+  if (q.length < 3) { hideLocationSuggestions(); return; }
+  _locTimer = setTimeout(() => fetchLocationSuggestions(q), 250);
+}
+
+async function fetchLocationSuggestions(q) {
+  try {
+    await loadGoogleMaps();
+    const { AutocompleteSuggestion, AutocompleteSessionToken } = await google.maps.importLibrary("places");
+    if (!_locSession) _locSession = new AutocompleteSessionToken();
+    const { suggestions } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+      input: q, sessionToken: _locSession,
+    });
+    renderLocationSuggestions(suggestions || []);
+  } catch (e) {
+    console.warn("[Maps] suggestions unavailable:", e.message);
+    hideLocationSuggestions();
+  }
+}
+
+function renderLocationSuggestions(suggestions) {
+  const box = document.getElementById("taskLocationSuggestions");
+  if (!box) return;
+  const items = suggestions.map(s => s.placePrediction).filter(Boolean);
+  if (!items.length) { hideLocationSuggestions(); return; }
+  box._items = items;
+  box.innerHTML = items.map((p, i) => {
+    const main = p.mainText ? p.mainText.text : (p.text ? p.text.text : "");
+    const sub  = p.secondaryText ? p.secondaryText.text : "";
+    return `<div class="loc-suggest-item" onmousedown="event.preventDefault();pickLocationSuggestion(${i})">
+      <i data-lucide="map-pin"></i>
+      <div class="loc-suggest-text"><div class="loc-main">${esc(main)}</div>${sub ? `<div class="loc-sub">${esc(sub)}</div>` : ""}</div>
+    </div>`;
+  }).join("");
+  box.classList.remove("hidden");
+  if (window.lucide) lucide.createIcons();
+}
+
+async function pickLocationSuggestion(i) {
+  const box = document.getElementById("taskLocationSuggestions");
+  const pred = box && box._items && box._items[i];
+  hideLocationSuggestions();
+  if (!pred) return;
+  try {
+    const place = pred.toPlace();
+    await place.fetchFields({ fields: ["formattedAddress", "location", "displayName"] });
+    // Prefer the place NAME (e.g. "Skynine Center") over the long address
+    const addr = place.displayName || place.formattedAddress || "";
+    const loc = place.location;
+    const lat = loc ? (typeof loc.lat === "function" ? loc.lat() : loc.lat) : "";
+    const lng = loc ? (typeof loc.lng === "function" ? loc.lng() : loc.lng) : "";
+    setTaskLocationValue(addr, lat, lng);
+  } catch (e) { console.warn("[Maps] place details failed:", e.message); }
+  _locSession = null; // end the billing session after a selection
+}
+
+function hideLocationSuggestions() {
+  const box = document.getElementById("taskLocationSuggestions");
+  if (box) box.classList.add("hidden");
+}
+
+// Show the currently-saved location as a clickable chip (Google Maps link)
+function renderTaskLocation() {
+  const link = document.getElementById("taskLocationCurrent");
+  if (!link) return;
+  const addr = (document.getElementById("taskLocation").value || "").trim();
+  if (!addr) { link.classList.add("hidden"); link.innerHTML = ""; return; }
+  const lat = document.getElementById("taskLocationLat").value;
+  const lng = document.getElementById("taskLocationLng").value;
+  const q = (lat && lng) ? `${lat},${lng}` : addr;
+  link.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+  link.innerHTML = `<i data-lucide="map-pin" style="width:12px;height:12px"></i> View on Google Maps`;
+  link.classList.remove("hidden");
+  if (window.lucide) lucide.createIcons();
+}
+
 function openTaskModal(taskId = null, defaults = {}) {
   S.editingTaskId = taskId;
   S.taskLabels = [];
@@ -1194,6 +1318,9 @@ function openTaskModal(taskId = null, defaults = {}) {
     document.getElementById("taskAssignee").value = t.assignee || "";
     document.getElementById("taskDueDate").value = t.dueDate || "";
     setDueDateDisplay(t.dueDate || "");
+    document.getElementById("taskLocation").value = t.location || "";
+    document.getElementById("taskLocationLat").value = t.locationLat || "";
+    document.getElementById("taskLocationLng").value = t.locationLng || "";
     S.taskLabels = [...(t.labels||[])];
     S.taskSubtasks = (t.subtasks||[]).map(s=>({...s}));
     S.taskComments = (t.comments||[]).map(c=>({...c}));
@@ -1207,8 +1334,13 @@ function openTaskModal(taskId = null, defaults = {}) {
     document.getElementById("taskAssignee").value = defaults.assignee || S.currentUserId || "";
     document.getElementById("taskDueDate").value = defaults.dueDate || "";
     setDueDateDisplay(defaults.dueDate || "");
+    document.getElementById("taskLocation").value = "";
+    document.getElementById("taskLocationLat").value = "";
+    document.getElementById("taskLocationLng").value = "";
   }
 
+  renderTaskLocation();
+  hideLocationSuggestions();
   renderModalLabels();
   renderModalSubtasks();
   renderModalComments();
@@ -1391,6 +1523,9 @@ function saveTask() {
     priority: document.getElementById("taskPriority").value,
     assignee: document.getElementById("taskAssignee").value,
     dueDate: document.getElementById("taskDueDate").value,
+    location: document.getElementById("taskLocation").value.trim(),
+    locationLat: document.getElementById("taskLocationLat").value,
+    locationLng: document.getElementById("taskLocationLng").value,
     labels: [...S.taskLabels],
     subtasks: S.taskSubtasks.map(s=>({...s})),
     comments: S.taskComments.map(c=>({...c})),

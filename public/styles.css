@@ -5,6 +5,7 @@
 /* ── Variables ─────────────────────────────────────────────── */
 /* Fairdee design system — DARK theme (matches Fairdee-OKR / CRM) */
 :root {
+  color-scheme: dark;
   --bg-primary:    #0d1117;
   --bg-secondary:  #161b26;
   --bg-card:       #161b26;
@@ -34,6 +35,7 @@
 
 /* Fairdee design system — LIGHT theme (default; navy + orange) */
 [data-theme="light"] {
+  color-scheme: light;
   --bg-primary:    #fafbfc;
   --bg-secondary:  #ffffff;
   --bg-card:       #ffffff;
@@ -308,6 +310,24 @@ h4 { font-size: 0.9rem; font-weight: 600; }
 }
 .badge-red { background: var(--danger); }
 .sidebar-footer { padding: 8px; border-top: 1px solid var(--border); }
+
+/* ── Location autocomplete dropdown (our design) ── */
+.loc-suggest {
+  position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow);
+  max-height: 260px; overflow-y: auto; z-index: 400;
+}
+.loc-suggest-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 9px 11px; cursor: pointer; border-bottom: 1px solid var(--border);
+}
+.loc-suggest-item:last-child { border-bottom: none; }
+.loc-suggest-item:hover { background: var(--bg-hover); }
+.loc-suggest-item i { width: 15px; height: 15px; color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+.loc-suggest-text { min-width: 0; }
+.loc-main { font-size: 13px; font-weight: 500; color: var(--text-1); }
+.loc-sub  { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Navy sidebar (Fairdee CRM style) — fixed regardless of theme ── */
 .sidebar {
@@ -1149,7 +1169,25 @@ h4 { font-size: 0.9rem; font-weight: 600; }
 .picker-file-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Tasks labels container */
-.task-labels-display { display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; }
+.task-labels-display { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-labels-display:empty { display: none; }
+.task-labels-display:not(:empty) { margin-bottom: 6px; }
+
+/* Make every task-modal field the same size/shape as the Due Date box */
+#taskModal select,
+#taskModal input,
+#taskModal .dp-trigger,
+#taskModal .label-dropdown-input {
+  border-radius: var(--radius);
+  min-height: 38px;
+  box-sizing: border-box;
+}
+#taskModal .label-dropdown-input {
+  padding: 8px 12px;
+  background: var(--bg-primary);
+}
+#taskModal .label-dropdown-input input { font-size: 13px; min-height: auto; padding: 0; }
+#taskModal .labels-container .label-dropdown-wrapper { margin-top: 0 !important; }
 
 /* ── TOAST NOTIFICATIONS ─────────────────────────────────────── */
 .toast-container {

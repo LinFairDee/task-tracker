@@ -139,6 +139,7 @@ function initFirebaseAuth() {
           G.isSignedIn = true;
           if (typeof refreshCurrentGoogleViews === "function") refreshCurrentGoogleViews();
           if (typeof updateDriveSyncStatus === "function") updateDriveSyncStatus("synced");
+          if (typeof syncAllGoogleServices === "function") syncAllGoogleServices(true);
         })
         .catch(() => {
           console.info("[Firebase] No silent Google API token — click Connect in Gmail/Drive to reconnect");
@@ -427,6 +428,20 @@ function updateGoogleBtn() {
     label.textContent = "Connect Google";
     if (btn) btn.style.color = "";
   }
+}
+
+// Preload/refresh Gmail, Drive and Calendar in the background so their data is
+// fresh whenever the user lands on the main page. Throttled to avoid spamming.
+G._lastGSync = 0;
+function syncAllGoogleServices(force) {
+  if (!G.isSignedIn || !G.accessToken) return;
+  const now = Date.now();
+  if (!force && now - (G._lastGSync || 0) < 15000) return;
+  G._lastGSync = now;
+  console.log("[Google] Syncing Gmail / Drive / Calendar…");
+  try { if (typeof loadGmailFolder === "function") loadGmailFolder("INBOX"); } catch (e) {}
+  try { if (typeof navigateDrive === "function") navigateDrive("root"); } catch (e) {}
+  try { if (typeof renderGCalMonth === "function") renderGCalMonth(); } catch (e) {}
 }
 
 function refreshCurrentGoogleViews() {

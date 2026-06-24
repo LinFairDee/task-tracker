@@ -522,9 +522,6 @@
         <div class="team-header">
           <h3>Team</h3>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-outline btn-sm" onclick="toggleTeamEditMode()" id="teamEditModeBtn">
-              <i data-lucide="settings-2"></i> Edit Hierarchy
-            </button>
             <button class="btn btn-primary btn-sm" onclick="showAddUser()">
               <i data-lucide="user-plus"></i> Add Member
             </button>
@@ -635,6 +632,17 @@
               <span id="dueDateClear" class="dp-clear hidden" onclick="clearDueDate(event)">×</span>
             </div>
             <input type="hidden" id="taskDueDate" />
+          </div>
+          <div class="form-group" style="position:relative">
+            <label>Location</label>
+            <input type="text" id="taskLocation" placeholder="Search a place…" autocomplete="off"
+                   oninput="onLocationInput()" onblur="setTimeout(hideLocationSuggestions,150)" />
+            <input type="hidden" id="taskLocationLat" />
+            <input type="hidden" id="taskLocationLng" />
+            <div id="taskLocationSuggestions" class="loc-suggest hidden"></div>
+            <a id="taskLocationCurrent" href="#" target="_blank" rel="noopener"
+               class="link-text hidden" style="font-size:12px;display:inline-flex;align-items:center;gap:5px;margin-top:8px">
+            </a>
           </div>
           <div class="form-group">
             <label>Labels</label>
