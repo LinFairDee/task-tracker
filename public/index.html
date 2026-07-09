@@ -625,6 +625,12 @@
             <select id="taskAssignee"></select>
           </div>
           <div class="form-group">
+            <label>Stakeholders</label>
+            <div id="taskStakeholdersList" class="task-labels-display"></div>
+            <input type="text" id="newStakeholderInput" placeholder="Add stakeholder, press Enter…" autocomplete="off"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();addStakeholder()}" />
+          </div>
+          <div class="form-group">
             <label>Due Date</label>
             <div class="dp-trigger" id="dueDateTrigger" onclick="openDatePicker()">
               <i data-lucide="calendar"></i>

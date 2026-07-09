@@ -1292,6 +1292,7 @@ function renderTaskLocation() {
 function openTaskModal(taskId = null, defaults = {}) {
   S.editingTaskId = taskId;
   S.taskLabels = [];
+  S.taskStakeholders = [];
   S.taskSubtasks = [];
   S.taskComments = [];
   S.taskAttachments = [];
@@ -1322,6 +1323,7 @@ function openTaskModal(taskId = null, defaults = {}) {
     document.getElementById("taskLocationLat").value = t.locationLat || "";
     document.getElementById("taskLocationLng").value = t.locationLng || "";
     S.taskLabels = [...(t.labels||[])];
+    S.taskStakeholders = [...(t.stakeholders||[])];
     S.taskSubtasks = (t.subtasks||[]).map(s=>({...s}));
     S.taskComments = (t.comments||[]).map(c=>({...c}));
     S.taskAttachments = (t.attachments||[]).map(a=>({...a}));
@@ -1341,6 +1343,7 @@ function openTaskModal(taskId = null, defaults = {}) {
 
   renderTaskLocation();
   hideLocationSuggestions();
+  renderModalStakeholders();
   renderModalLabels();
   renderModalSubtasks();
   renderModalComments();
@@ -1364,6 +1367,28 @@ function addTaskLabel() {
   input.value = "";
   renderModalLabels();
   closeLabelDropdown();
+}
+
+// ── Stakeholders (multi-value chips) ─────────────────────────
+function renderModalStakeholders() {
+  const el = document.getElementById("taskStakeholdersList");
+  if (!el) return;
+  el.innerHTML = S.taskStakeholders.map(s =>
+    `<span class="label-badge"><i data-lucide="user" style="width:11px;height:11px"></i>${esc(s)}<span class="label-remove" onclick="removeStakeholder('${esc(s)}')" title="Remove">×</span></span>`
+  ).join("");
+  if (window.lucide) lucide.createIcons();
+}
+function addStakeholder() {
+  const input = document.getElementById("newStakeholderInput");
+  const val = input.value.trim();
+  if (!val || S.taskStakeholders.includes(val)) { input.value = ""; return; }
+  S.taskStakeholders.push(val);
+  input.value = "";
+  renderModalStakeholders();
+}
+function removeStakeholder(name) {
+  S.taskStakeholders = S.taskStakeholders.filter(s => s !== name);
+  renderModalStakeholders();
 }
 
 function removeTaskLabel(label) {
@@ -1527,6 +1552,7 @@ function saveTask() {
     locationLat: document.getElementById("taskLocationLat").value,
     locationLng: document.getElementById("taskLocationLng").value,
     labels: [...S.taskLabels],
+    stakeholders: [...S.taskStakeholders],
     subtasks: S.taskSubtasks.map(s=>({...s})),
     comments: S.taskComments.map(c=>({...c})),
     attachments: S.taskAttachments.map(a=>({...a})),
