@@ -622,7 +622,12 @@
           </div>
           <div class="form-group">
             <label>Assignee</label>
-            <select id="taskAssignee"></select>
+            <select id="taskAssignee" onchange="onAssigneeChange()"></select>
+          </div>
+          <div class="form-group">
+            <label>Co-assignees</label>
+            <div id="coAssigneeChips" class="coassign-chips"></div>
+            <select id="coAssigneeSelect" onchange="addCoAssignee(this.value)"></select>
           </div>
           <div class="form-group">
             <label>Stakeholders</label>

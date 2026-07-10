@@ -107,6 +107,47 @@ select:hover { border-color: var(--border-light); background-color: var(--bg-hov
 select:focus { background-color: var(--bg-primary); }
 /* The open option list — themed where the browser allows it */
 select option { background: var(--bg-secondary); color: var(--text-1); }
+
+/* ── Custom dropdown (JS-enhanced <select>) ─────────────────── */
+.cs-native { display: none !important; }
+.custom-select { position: relative; display: block; width: 100%; }
+.custom-select.filter-select { display: inline-block; width: auto; vertical-align: middle; padding: 0; border: none; background: none; }
+.custom-select.team-switcher { max-width: 200px; }
+
+.cs-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 13px; font-weight: inherit; color: var(--text-1);
+  background: var(--bg-primary); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 12px;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+.custom-select.filter-select .cs-trigger { padding: 6px 10px; font-size: 12px; min-width: 110px; }
+.cs-trigger:hover { border-color: var(--border-light); background: var(--bg-hover); }
+.custom-select.cs-open .cs-trigger { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.cs-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-label.cs-placeholder { color: var(--text-3); }
+.cs-arrow { display: flex; flex-shrink: 0; color: var(--text-3); transition: transform var(--transition); }
+.custom-select.cs-open .cs-arrow { transform: rotate(180deg); }
+
+.cs-menu {
+  position: absolute; z-index: 1200; top: calc(100% + 4px); left: 0;
+  min-width: 100%; max-height: 260px; overflow-y: auto;
+  background: var(--bg-secondary); border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 4px;
+  animation: csFade 0.12s ease;
+}
+@keyframes csFade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.cs-option {
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  font-size: 13px; color: var(--text-1); white-space: nowrap;
+  transition: background var(--transition);
+}
+.cs-option:hover { background: var(--bg-hover); }
+.cs-option.cs-active { background: var(--accent); color: #fff; }
+.cs-option.cs-disabled { color: var(--text-3); cursor: default; }
+.cs-option.cs-disabled:hover { background: none; }
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
@@ -244,6 +285,7 @@ h4 { font-size: 0.9rem; font-weight: 600; }
   user-select: none;
 }
 .avatar-sm { width: 28px; height: 28px; font-size: 11px; }
+.avatar-xs { width: 20px; height: 20px; font-size: 9px; }
 .avatar-lg { width: 54px; height: 54px; font-size: 20px; }
 
 /* ── APP LAYOUT ──────────────────────────────────────────────── */
@@ -606,6 +648,21 @@ h4 { font-size: 0.9rem; font-weight: 600; }
   box-sizing: content-box;
 }
 .avatar-stack .avatar:last-child { margin-left: 0; }
+.avatar-stack .coassign-avatar { border-style: dashed; }
+
+/* Co-assignee picker (task modal) */
+.coassign-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.coassign-chips:empty { display: none; }
+.coassign-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 8px 3px 3px;
+  font-size: 12px; color: var(--text-1);
+}
+.coassign-remove {
+  cursor: pointer; color: var(--text-3); font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.coassign-remove:hover { color: var(--danger); }
 .kanban-column {
   flex-shrink: 0; width: 280px; background: var(--bg-card);
   border: 1px solid var(--border); border-radius: var(--radius);

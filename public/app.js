@@ -53,6 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadFromLocalStorage();   // always load local first as fast fallback
   buildColorPicker();
   setupKeyboardShortcuts();
+  initCustomSelects();      // themed dropdowns replacing native <select>
   lucide.createIcons();
   setInterval(checkDueTasks, 60000);
   // Auto-resume Google session if token still valid (GIS handles this)
@@ -61,6 +62,114 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("loginScreen").classList.remove("hidden");
   document.getElementById("appContainer").classList.add("hidden");
 });
+
+// ── Custom dropdowns ──────────────────────────────────────────
+// Progressively enhance every <select> with a themed dropdown. The native
+// <select> stays in the DOM (hidden) so all existing .value / onchange logic
+// keeps working; we just drive it from a custom UI.
+function initCustomSelects() {
+  document.querySelectorAll("select:not([data-enhanced])").forEach(enhanceSelect);
+  if (window.__csInit) return;
+  window.__csInit = true;
+  // Enhance selects added later (dynamic modals, re-rendered toolbars)
+  new MutationObserver(muts => {
+    muts.forEach(m => m.addedNodes.forEach(n => {
+      if (n.nodeType !== 1) return;
+      if (n.tagName === "SELECT") enhanceSelect(n);
+      else if (n.querySelectorAll) n.querySelectorAll("select:not([data-enhanced])").forEach(enhanceSelect);
+    }));
+  }).observe(document.body, { childList: true, subtree: true });
+  document.addEventListener("click", closeAllCustomSelects);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeAllCustomSelects(); });
+}
+
+function closeAllCustomSelects() {
+  document.querySelectorAll(".custom-select.cs-open").forEach(w => {
+    w.classList.remove("cs-open");
+    w.querySelector(".cs-menu")?.classList.add("hidden");
+  });
+}
+
+function enhanceSelect(sel) {
+  if (sel.dataset.enhanced || sel.multiple) return;
+  sel.dataset.enhanced = "1";
+
+  const wrap = document.createElement("div");
+  wrap.className = "custom-select " + sel.className;
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+  sel.classList.add("cs-native");
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "cs-trigger";
+  trigger.innerHTML =
+    `<span class="cs-label"></span>` +
+    `<span class="cs-arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>`;
+  wrap.appendChild(trigger);
+
+  const menu = document.createElement("div");
+  menu.className = "cs-menu hidden";
+  wrap.appendChild(menu);
+
+  const labelEl = trigger.querySelector(".cs-label");
+
+  function syncLabel() {
+    const opt = sel.options[sel.selectedIndex];
+    labelEl.textContent = opt ? opt.textContent : "";
+    labelEl.classList.toggle("cs-placeholder", !!opt && opt.value === "");
+  }
+  function buildMenu() {
+    menu.innerHTML = Array.from(sel.options).map((o, i) => {
+      const cls = ["cs-option"];
+      if (o.disabled) cls.push("cs-disabled");
+      if (i === sel.selectedIndex) cls.push("cs-active");
+      return `<div class="${cls.join(" ")}" data-i="${i}">${esc(o.textContent)}</div>`;
+    }).join("");
+  }
+  function open() { closeAllCustomSelects(); buildMenu(); menu.classList.remove("hidden"); wrap.classList.add("cs-open"); }
+  function close() { menu.classList.add("hidden"); wrap.classList.remove("cs-open"); }
+
+  trigger.addEventListener("click", e => {
+    e.stopPropagation();
+    if (sel.disabled) return;
+    wrap.classList.contains("cs-open") ? close() : open();
+  });
+  menu.addEventListener("click", e => {
+    e.stopPropagation();
+    const opt = e.target.closest(".cs-option");
+    if (!opt || opt.classList.contains("cs-disabled")) return;
+    const i = +opt.dataset.i;
+    if (i !== sel.selectedIndex) {
+      sel.selectedIndex = i;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    syncLabel();
+    close();
+  });
+
+  // Mirror the native select's hidden state (via .hidden class or inline
+  // display:none) onto the wrapper so hidden filters stay hidden.
+  function mirrorHidden() {
+    wrap.classList.toggle("hidden", sel.classList.contains("hidden") || sel.style.display === "none");
+  }
+
+  // Keep label + visibility in sync when code repopulates options, sets value,
+  // or toggles the native select's classes/style.
+  sel._csSync = syncLabel;
+  new MutationObserver(() => {
+    mirrorHidden();
+    syncLabel();
+    if (wrap.classList.contains("cs-open")) buildMenu();
+  }).observe(sel, { childList: true, attributes: true, attributeFilter: ["class", "style", "disabled"] });
+
+  mirrorHidden();
+  syncLabel();
+}
+
+function syncAllCustomSelects() {
+  document.querySelectorAll("select[data-enhanced]").forEach(s => s._csSync && s._csSync());
+}
 
 // ── Storage — Local ───────────────────────────────────────────
 function saveToLocalStorage() {
@@ -668,7 +777,7 @@ function renderKanban() {
 
   // Apply board tab filter
   if (activeBoardTab === "mine") {
-    tasks = tasks.filter(t => t.assignee === S.currentUserId);
+    tasks = tasks.filter(t => t.assignee === S.currentUserId || (t.coAssignees||[]).includes(S.currentUserId));
   } else if (activeBoardTab === "team") {
     // Tasks assigned to my teammates (members of my active Firestore team)
     const teamIds = myTeammateIds();
@@ -750,6 +859,7 @@ const expandedSubtasks = new Set();
 function renderTaskCard(task) {
   const assignee = task.assignee ? getUserById(task.assignee) : null;
   const isExpanded = expandedSubtasks.has(task.id);
+  const coAssignees = (task.coAssignees || []).map(getUserById).filter(Boolean);
   const subtasks = task.subtasks || [];
   const doneSubtasks = subtasks.filter(s => s.done).length;
   const subtaskPct = subtasks.length ? Math.round((doneSubtasks / subtasks.length) * 100) : 0;
@@ -818,6 +928,7 @@ function renderTaskCard(task) {
         <div class="task-card-footer-right">
           <div class="avatar-stack">
             ${assignee ? `<div class="avatar avatar-sm" style="background:${assignee.color}" title="${esc(assignee.name)}">${initials(assignee.name)}</div>` : ""}
+            ${coAssignees.map(u => `<div class="avatar avatar-sm coassign-avatar" style="background:${u.color}" title="${esc(u.name)} (co-assignee)">${initials(u.name)}</div>`).join("")}
           </div>
         </div>
       </div>
@@ -922,6 +1033,7 @@ function renderList() {
   }
   body.innerHTML = tasks.map(task => {
     const assignee = task.assignee ? getUserById(task.assignee) : null;
+    const coAssignees = (task.coAssignees || []).map(getUserById).filter(Boolean);
     const overdue = task.status !== "done" && isOverdue(task.dueDate);
     return `
       <div class="list-row" onclick="openTaskModal('${task.id}')">
@@ -930,9 +1042,10 @@ function renderList() {
           <span>${esc(task.title)}</span>
         </div>
         <div>
-          ${assignee ? `<div style="display:flex;align-items:center;gap:4px">
-            <div class="avatar avatar-sm" style="background:${assignee.color}">${initials(assignee.name)}</div>
-            <span style="font-size:11px">${esc(assignee.name.split(" ")[0])}</span>
+          ${assignee || coAssignees.length ? `<div style="display:flex;align-items:center;gap:4px">
+            ${assignee ? `<div class="avatar avatar-sm" style="background:${assignee.color}" title="${esc(assignee.name)}">${initials(assignee.name)}</div>
+            <span style="font-size:11px">${esc(assignee.name.split(" ")[0])}</span>` : ""}
+            ${coAssignees.map(u => `<div class="avatar avatar-sm coassign-avatar" style="background:${u.color}" title="${esc(u.name)} (co-assignee)">${initials(u.name)}</div>`).join("")}
           </div>` : '<span style="color:var(--text-3)">—</span>'}
         </div>
         <div><span class="priority-badge priority-${task.priority}">${task.priority}</span></div>
@@ -1293,6 +1406,7 @@ function openTaskModal(taskId = null, defaults = {}) {
   S.editingTaskId = taskId;
   S.taskLabels = [];
   S.taskStakeholders = [];
+  S.taskCoAssignees = [];
   S.taskSubtasks = [];
   S.taskComments = [];
   S.taskAttachments = [];
@@ -1324,6 +1438,7 @@ function openTaskModal(taskId = null, defaults = {}) {
     document.getElementById("taskLocationLng").value = t.locationLng || "";
     S.taskLabels = [...(t.labels||[])];
     S.taskStakeholders = [...(t.stakeholders||[])];
+    S.taskCoAssignees = [...(t.coAssignees||[])];
     S.taskSubtasks = (t.subtasks||[]).map(s=>({...s}));
     S.taskComments = (t.comments||[]).map(c=>({...c}));
     S.taskAttachments = (t.attachments||[]).map(a=>({...a}));
@@ -1345,10 +1460,12 @@ function openTaskModal(taskId = null, defaults = {}) {
   hideLocationSuggestions();
   renderModalStakeholders();
   renderModalLabels();
+  renderModalCoAssignees();
   renderModalSubtasks();
   renderModalComments();
   renderModalAttachments();
   updateSidebarUser();
+  syncAllCustomSelects();   // reflect the loaded values in the custom dropdowns
   lucide.createIcons();
 }
 
@@ -1357,6 +1474,52 @@ function renderModalLabels() {
     const c = getLabelColor(l);
     return `<span class="label-badge"><span class="label-dot" style="background:${c}"></span>${esc(l)}<span class="label-remove" onclick="removeTaskLabel('${esc(l)}')" title="Remove">×</span></span>`;
   }).join("");
+}
+
+// ── Co-assignees ──────────────────────────────────────────────
+// The picker lists everyone on the active team (S.users is already scoped to it).
+function renderModalCoAssignees() {
+  const chips = document.getElementById("coAssigneeChips");
+  const select = document.getElementById("coAssigneeSelect");
+  if (!chips || !select) return;
+  const primary = document.getElementById("taskAssignee").value;
+  const selected = S.taskCoAssignees || [];
+
+  chips.innerHTML = selected.map(id => {
+    const u = getUserById(id);
+    if (!u) return "";
+    return `<span class="coassign-chip">
+      <span class="avatar avatar-xs" style="background:${u.color}">${initials(u.name)}</span>
+      ${esc(u.name.split(" ")[0])}
+      <span class="coassign-remove" onclick="removeCoAssignee('${id}')" title="Remove">×</span>
+    </span>`;
+  }).join("");
+
+  // Offer team members who aren't the primary assignee and aren't already co-assigned
+  const available = S.users.filter(u => u.id !== primary && !selected.includes(u.id));
+  select.innerHTML = `<option value="">+ Add co-assignee…</option>` +
+    (available.length
+      ? available.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join("")
+      : `<option value="" disabled>No other team members — add them on the Team page</option>`);
+}
+
+function addCoAssignee(userId) {
+  if (!userId) return;
+  S.taskCoAssignees = S.taskCoAssignees || [];
+  if (!S.taskCoAssignees.includes(userId)) S.taskCoAssignees.push(userId);
+  renderModalCoAssignees();
+}
+
+function removeCoAssignee(userId) {
+  S.taskCoAssignees = (S.taskCoAssignees || []).filter(id => id !== userId);
+  renderModalCoAssignees();
+}
+
+// When the primary assignee changes, drop them from co-assignees (no duplicates)
+function onAssigneeChange() {
+  const primary = document.getElementById("taskAssignee").value;
+  if (primary) S.taskCoAssignees = (S.taskCoAssignees || []).filter(id => id !== primary);
+  renderModalCoAssignees();
 }
 
 function addTaskLabel() {
@@ -1547,6 +1710,7 @@ function saveTask() {
     status: document.getElementById("taskStatus").value,
     priority: document.getElementById("taskPriority").value,
     assignee: document.getElementById("taskAssignee").value,
+    coAssignees: [...(S.taskCoAssignees||[])],
     dueDate: document.getElementById("taskDueDate").value,
     location: document.getElementById("taskLocation").value.trim(),
     locationLat: document.getElementById("taskLocationLat").value,
