@@ -739,18 +739,30 @@ function renderDashboard() {
   `).join("");
 
   // Team activity
-  const teamStats = S.users.map(u => ({
-    user: u,
-    assigned: S.tasks.filter(t => t.assignee === u.id).length,
-    done: S.tasks.filter(t => t.assignee === u.id && t.status === "done").length,
-  }));
+  const teamStats = S.users.map(u => {
+    const mine = S.tasks.filter(t => t.assignee === u.id);
+    return {
+      user: u,
+      assigned: mine.length,
+      todo: mine.filter(t => t.status === "todo").length,
+      inprogress: mine.filter(t => t.status === "inprogress").length,
+      review: mine.filter(t => t.status === "review").length,
+      done: mine.filter(t => t.status === "done").length,
+    };
+  });
   document.getElementById("teamActivityList").innerHTML = teamStats.length ? teamStats.map(t => `
     <div class="due-soon-item">
       <div class="avatar avatar-sm" style="background:${t.user.color}">${initials(t.user.name)}</div>
       <span class="due-soon-title">${esc(t.user.name)}</span>
-      <span style="color:var(--text-3);font-size:11px">${t.done}/${t.assigned} done</span>
+      <span class="team-activity-stats">
+        <span class="ta-pill" style="color:${STATUS_COLORS.todo}" title="To Do"><i data-lucide="circle" style="width:11px;height:11px"></i>${t.todo}</span>
+        <span class="ta-pill" style="color:${STATUS_COLORS.inprogress}" title="In Progress"><i data-lucide="loader" style="width:11px;height:11px"></i>${t.inprogress}</span>
+        <span class="ta-pill" style="color:${STATUS_COLORS.review}" title="Review"><i data-lucide="eye" style="width:11px;height:11px"></i>${t.review}</span>
+        <span class="ta-pill" style="color:${STATUS_COLORS.done}" title="Done"><i data-lucide="circle-check" style="width:11px;height:11px"></i>${t.done}</span>
+      </span>
     </div>
   `).join("") : `<p style="color:var(--text-3);font-size:12px;text-align:center;padding:20px">No team members</p>`;
+  if (window.lucide) lucide.createIcons();
 
   // Label chart
   const allLabels = {};
