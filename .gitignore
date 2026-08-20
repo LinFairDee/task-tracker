@@ -5,3 +5,4 @@ config.js
 Thumbs.db
 *.log
 .firebase/
+extension/key.pem

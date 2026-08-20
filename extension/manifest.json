@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "TaskFlow",
+  "version": "1.0.0",
+  "description": "View and update your TaskFlow tasks without leaving the tab you are on.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs/+VSmTglx6sruGWtCbgMCjZ75i7Bmio0A86eQw/kfZ+J23E5Lo4jNxA3r+Wb1H71YYae1jCmpxHG+V3SHvVX+c9aVXW8bDZ42PPC85LIaN9/oM093kjzednpEbhIxt2Mq3GkwPk0auCstEd8yzRGae+YU4tX3rnnqDECrZ4mgYlEKM7cKfqpATsgfBnqfY0iR5eN8YSdMt9yQ/j03xf11r6LPvB01AeD+X9UvM6HPWqApEB95CtfoLnfbcU7/mG8M8pBs1VMKz1zBeCPEzJJXy/mn2hVm/EkQf1EJI0Oh41Wn6d5z3jJ7q5XB8JKOVUfd6arR25iYUeTudyGjs3QQIDAQAB",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "TaskFlow",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "identity",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://identitytoolkit.googleapis.com/*",
+    "https://securetoken.googleapis.com/*",
+    "https://firestore.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "411677321604-j8copr6g7jlauomq72s2revrljlnmrdf.apps.googleusercontent.com",
+    "scopes": [
+      "openid",
+      "email",
+      "profile"
+    ]
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+T",
+        "mac": "Alt+Shift+T"
+      },
+      "description": "Open TaskFlow"
+    }
+  }
+}

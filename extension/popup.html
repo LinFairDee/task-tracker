@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <title>TaskFlow</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <!-- ── Signed out ─────────────────────────────────────────── -->
+  <section id="signinView" class="signin hidden">
+    <img class="logo" src="icons/icon128.png" alt="" />
+    <h1>TaskFlow</h1>
+    <p>Sign in with your Google account to see and update your team's tasks from here.</p>
+    <button id="signinBtn" class="btn btn-primary">Sign in with Google</button>
+    <p id="signinHint" class="err hidden"></p>
+  </section>
+
+  <!-- ── Task list ──────────────────────────────────────────── -->
+  <section id="mainView" class="shell hidden">
+    <header class="topbar">
+      <div class="brand"><img src="icons/icon32.png" alt="" /></div>
+      <select id="teamSelect" class="team-select" title="Team"></select>
+      <button id="refreshBtn" class="icon-btn" title="Refresh" data-icon="refresh"></button>
+      <button id="themeBtn" class="icon-btn" title="Toggle theme" data-icon="moon"></button>
+      <button id="signoutBtn" class="icon-btn" title="Sign out" data-icon="logOut"></button>
+    </header>
+
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span data-icon="search"></span>
+        <input id="searchInput" class="search-input" type="search" placeholder="Search tasks…" autocomplete="off" />
+      </div>
+      <div id="scopeTabs" class="segmented">
+        <button data-scope="mine">Mine</button>
+        <button data-scope="all">All</button>
+        <button data-scope="late">Due &amp; late</button>
+      </div>
+    </div>
+
+    <div id="list" class="scroll"></div>
+
+    <footer class="statusbar">
+      <span id="syncLabel">…</span>
+      <span class="spacer"></span>
+      <button id="openAppBtn" class="icon-btn" title="Open TaskFlow" data-icon="externalLink"></button>
+      <button id="newTaskBtn" class="btn btn-primary btn-sm"><span data-icon="plus" data-icon-size="13"></span> New</button>
+    </footer>
+  </section>
+
+  <!-- ── Task detail / new task ─────────────────────────────── -->
+  <section id="detailPane" class="pane hidden"></section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
