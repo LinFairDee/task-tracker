@@ -6,3 +6,4 @@ Thumbs.db
 *.log
 .firebase/
 extension/key.pem
+extension.zip
