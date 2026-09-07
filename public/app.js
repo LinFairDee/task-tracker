@@ -30,9 +30,13 @@ const AVATAR_COLORS = [
   "#6c63ff","#a855f7","#ec4899","#ef4444","#f97316",
   "#f59e0b","#22c55e","#14b8a6","#3b82f6","#06b6d4",
 ];
-const STATUSES = ["todo","inprogress","review","done"];
-const STATUS_LABELS = { todo:"To Do", inprogress:"In Progress", review:"Review", done:"Done" };
-const STATUS_COLORS = { todo:"#94a3b8", inprogress:"#3b82f6", review:"#a855f7", done:"#22c55e" };
+const STATUSES = ["todo","inprogress","review","done","postponed"];
+const STATUS_LABELS = { todo:"To Do", inprogress:"In Progress", review:"Review", done:"Done", postponed:"Postponed" };
+const STATUS_COLORS = { todo:"#94a3b8", inprogress:"#3b82f6", review:"#a855f7", done:"#22c55e", postponed:"#f59e0b" };
+// Parked indefinitely: still on the board, but it isn't work in flight — so it
+// stays out of overdue counts, due reminders, calendar sync and the digest.
+const PARKED_STATUSES = ["done","postponed"];
+function isActiveTask(t) { return !PARKED_STATUSES.includes(t.status); }
 const PRIORITY_ORDER = { urgent:4, high:3, medium:2, low:1 };
 const SAMPLE_LABELS = ["Bug","Feature","Design","Backend","Frontend","Urgent","Research","Testing"];
 const LABEL_COLORS = {
@@ -687,7 +691,7 @@ function renderDashboard() {
   const total = S.tasks.length;
   const done = S.tasks.filter(t => t.status === "done").length;
   const inprog = S.tasks.filter(t => t.status === "inprogress").length;
-  const overdue = S.tasks.filter(t => t.status !== "done" && isOverdue(t.dueDate)).length;
+  const overdue = S.tasks.filter(t => isActiveTask(t) && isOverdue(t.dueDate)).length;
 
   const stats = [
     { icon:"list-checks", label:"Total Tasks",  value:total,   bg:"rgba(108,99,255,0.15)", color:"#6c63ff" },
@@ -709,7 +713,7 @@ function renderDashboard() {
 
   // Due soon
   const soon = S.tasks
-    .filter(t => t.status !== "done" && t.dueDate)
+    .filter(t => isActiveTask(t) && t.dueDate)
     .sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate))
     .slice(0,6);
   document.getElementById("dueSoonList").innerHTML = soon.length ? soon.map(t => `
@@ -748,6 +752,7 @@ function renderDashboard() {
       inprogress: mine.filter(t => t.status === "inprogress").length,
       review: mine.filter(t => t.status === "review").length,
       done: mine.filter(t => t.status === "done").length,
+      postponed: mine.filter(t => t.status === "postponed").length,
     };
   });
   document.getElementById("teamActivityList").innerHTML = teamStats.length ? teamStats.map(t => `
@@ -759,6 +764,7 @@ function renderDashboard() {
         <span class="ta-pill" style="color:${STATUS_COLORS.inprogress}" title="In Progress"><i data-lucide="loader" style="width:11px;height:11px"></i>${t.inprogress}</span>
         <span class="ta-pill" style="color:${STATUS_COLORS.review}" title="Review"><i data-lucide="eye" style="width:11px;height:11px"></i>${t.review}</span>
         <span class="ta-pill" style="color:${STATUS_COLORS.done}" title="Done"><i data-lucide="circle-check" style="width:11px;height:11px"></i>${t.done}</span>
+        <span class="ta-pill" style="color:${STATUS_COLORS.postponed}" title="Postponed"><i data-lucide="pause-circle" style="width:11px;height:11px"></i>${t.postponed}</span>
       </span>
     </div>
   `).join("") : `<p style="color:var(--text-3);font-size:12px;text-align:center;padding:20px">No team members</p>`;
@@ -852,7 +858,7 @@ function setBoardTab(tab) {
 
 function updateBoardTabCounts() {
   // Counts reflect open (not Done) tasks only
-  const open = S.tasks.filter(t => t.status !== "done");
+  const open = S.tasks.filter(isActiveTask);
   const all = open.length;
   const mine = open.filter(t => t.assignee === S.currentUserId).length;
   const teamIds = myTeammateIds();
@@ -875,7 +881,7 @@ function renderTaskCard(task) {
   const subtasks = task.subtasks || [];
   const doneSubtasks = subtasks.filter(s => s.done).length;
   const subtaskPct = subtasks.length ? Math.round((doneSubtasks / subtasks.length) * 100) : 0;
-  const overdue = task.status !== "done" && isOverdue(task.dueDate);
+  const overdue = isActiveTask(task) && isOverdue(task.dueDate);
   const today = isToday(task.dueDate);
   const comments = task.comments || [];
   const attachments = task.attachments || [];
@@ -1046,7 +1052,7 @@ function renderList() {
   body.innerHTML = tasks.map(task => {
     const assignee = task.assignee ? getUserById(task.assignee) : null;
     const coAssignees = (task.coAssignees || []).map(getUserById).filter(Boolean);
-    const overdue = task.status !== "done" && isOverdue(task.dueDate);
+    const overdue = isActiveTask(task) && isOverdue(task.dueDate);
     return `
       <div class="list-row" onclick="openTaskModal('${task.id}')">
         <div class="list-row-title ${task.status==="done"?"done":""}">
@@ -2015,7 +2021,7 @@ function checkDueTasks() {
   const todayStr = new Date().toISOString().slice(0,10);
 
   S.tasks.forEach(t => {
-    if (t.status === "done") return;
+    if (!isActiveTask(t)) return;
     if (t.dueDate === todayStr && !t._notifiedToday) {
       t._notifiedToday = true;
       addNotification(`Task due today: "${t.title}"`, "warning");
@@ -2028,7 +2034,7 @@ function checkDueTasks() {
 }
 
 function updateBadges() {
-  const active = S.tasks.filter(t => t.status !== "done").length;
+  const active = S.tasks.filter(isActiveTask).length;
   const badge = document.getElementById("tasksBadge");
   if (badge) badge.textContent = active || "";
 
@@ -2234,6 +2240,7 @@ function getWeeklyTasks() {
 
   // Tasks due this week OR currently in progress
   const weekTasks = S.tasks.filter(t => {
+    if (t.status === "postponed") return false;   // parked work isn't reported on
     const dueInWeek = t.dueDate && t.dueDate >= startStr && t.dueDate <= endStr;
     const inProgress = t.status === "inprogress";
     const completedThisWeek = t.status === "done" && t.completedAt &&

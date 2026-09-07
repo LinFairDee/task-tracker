@@ -1077,7 +1077,7 @@ async function createGCalEvent() {
 
 async function syncTasksToCalendar() {
   if (!G.isSignedIn) { showToast("Connect Google Calendar first", "warning"); return; }
-  const tasks = S.tasks.filter(t => t.dueDate && t.status !== "done").slice(0, 10);
+  const tasks = S.tasks.filter(t => t.dueDate && isActiveTask(t)).slice(0, 10);
   let synced = 0;
   for (const task of tasks) {
     try {

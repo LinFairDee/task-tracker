@@ -5,9 +5,14 @@
    ============================================================ */
 "use strict";
 
-export const STATUSES = ["todo", "inprogress", "review", "done"];
-export const STATUS_LABELS = { todo: "To Do", inprogress: "In Progress", review: "Review", done: "Done" };
-export const STATUS_COLORS = { todo: "#94a3b8", inprogress: "#3b82f6", review: "#a855f7", done: "#22c55e" };
+export const STATUSES = ["todo", "inprogress", "review", "done", "postponed"];
+export const STATUS_LABELS = { todo: "To Do", inprogress: "In Progress", review: "Review", done: "Done", postponed: "Postponed" };
+export const STATUS_COLORS = { todo: "#94a3b8", inprogress: "#3b82f6", review: "#a855f7", done: "#22c55e", postponed: "#f59e0b" };
+
+// Parked indefinitely: visible on the board, but not work in flight — so it
+// stays out of the badge, the due filters and the overdue styling.
+export const PARKED_STATUSES = ["done", "postponed"];
+export function isActiveTask(task) { return !PARKED_STATUSES.includes(task.status); }
 
 export const PRIORITIES = ["low", "medium", "high", "urgent"];
 export const PRIORITY_LABELS = { low: "Low", medium: "Medium", high: "High", urgent: "Urgent" };
@@ -103,9 +108,9 @@ export function isMine(task, uid) {
   return task.assignee === uid || (task.coAssignees || []).includes(uid);
 }
 
-/** Open tasks assigned to me that are due today or already late. */
+/** Live tasks assigned to me that are due today or already late. */
 export function needsAttention(task, uid) {
-  if (task.status === "done") return false;
+  if (!isActiveTask(task)) return false;
   if (!isMine(task, uid)) return false;
   return isOverdue(task.dueDate) || isDueToday(task.dueDate);
 }

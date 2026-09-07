@@ -152,7 +152,7 @@ function visibleTasks() {
 
   if (state.prefs.scope === "mine") tasks = tasks.filter(t => M.isMine(t, uid));
   if (state.prefs.scope === "late") {
-    tasks = tasks.filter(t => t.status !== "done" && (M.isOverdue(t.dueDate) || M.isDueToday(t.dueDate)));
+    tasks = tasks.filter(t => M.isActiveTask(t) && (M.isOverdue(t.dueDate) || M.isDueToday(t.dueDate)));
   }
 
   if (q) {
@@ -210,8 +210,9 @@ function renderList() {
 
 function taskRow(t) {
   const done = t.status === "done";
-  const overdue = !done && M.isOverdue(t.dueDate);
-  const today = !done && !overdue && M.isDueToday(t.dueDate);
+  const live = M.isActiveTask(t);
+  const overdue = live && M.isOverdue(t.dueDate);
+  const today = live && !overdue && M.isDueToday(t.dueDate);
   const subs = t.subtasks || [];
   const subsDone = subs.filter(s => s.done).length;
   const labels = (t.labels || []).slice(0, 2);
