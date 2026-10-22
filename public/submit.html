@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="th" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ส่งคำขอ — TaskFlow</title>
+  <meta name="description" content="ส่งคำขอถึงทีม Fairdee" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="assets/fairdee-favicon.png" />
+  <link rel="apple-touch-icon" href="assets/fairdee-apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="submit.css" />
+</head>
+<body>
+
+<main class="page">
+  <header class="masthead">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 128 128" fill="currentColor">
+        <path d="M74.5 12 34 70.5a3 3 0 0 0 2.5 4.7h20.2L53.5 116l40.5-58.5a3 3 0 0 0-2.5-4.7H71.3z"/>
+      </svg>
+    </div>
+    <div class="masthead-text">
+      <h1 data-i18n="heading">ส่งคำขอ</h1>
+      <p data-i18n="subheading">บอกเราว่าคุณต้องการอะไร แล้วเราจะรับเรื่องต่อ · ช่องที่มี * ต้องกรอก</p>
+    </div>
+    <div class="lang" id="lang" role="group" aria-label="ภาษา / Language">
+      <button type="button" data-lang="th" class="active">ไทย</button>
+      <button type="button" data-lang="en">EN</button>
+    </div>
+  </header>
+
+  <!-- ── Form ────────────────────────────────────────────── -->
+  <form id="ticketForm" class="card" novalidate>
+    <div class="field">
+      <label class="label" for="email" data-i18n="emailLabel">อีเมลของคุณ *</label>
+      <input class="control" id="email" name="email" type="email" maxlength="160"
+             autocomplete="email" data-i18n-ph="emailPh" placeholder="you@fairdee.co.th" required />
+      <p class="err" data-err="email"></p>
+    </div>
+
+    <div class="field">
+      <label class="label" for="category" data-i18n="categoryLabel">คำขอประเภทไหน</label>
+      <select class="control" id="category">
+        <option value="bug" data-i18n="cat_bug">มีบางอย่างใช้งานไม่ได้</option>
+        <option value="feature" data-i18n="cat_feature">ขอฟีเจอร์ใหม่หรือปรับปรุง</option>
+        <option value="access" data-i18n="cat_access">สิทธิ์เข้าใช้งานหรือบัญชี</option>
+        <option value="data" data-i18n="cat_data">ข้อมูลหรือรายงาน</option>
+        <option value="other" selected data-i18n="cat_other">เรื่องอื่น ๆ</option>
+      </select>
+    </div>
+
+    <div class="field" id="assigneeField" hidden>
+      <label class="label" for="assignee" data-i18n="assigneeLabel">ต้องการให้ใครดูแลเรื่องนี้</label>
+      <select class="control" id="assignee">
+        <option value="" data-i18n="anyone">ใครก็ได้ในทีม</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <span class="label" data-i18n="priorityLabel">ด่วนแค่ไหน</span>
+      <div class="segmented" id="priority" role="radiogroup" aria-label="ความเร่งด่วน">
+        <button type="button" data-value="low" data-i18n="p_low">ไม่ด่วน</button>
+        <button type="button" data-value="medium" class="active" data-i18n="p_medium">ปานกลาง</button>
+        <button type="button" data-value="high" data-i18n="p_high">ด่วน</button>
+        <button type="button" data-value="urgent" data-i18n="p_urgent">ด่วนมาก</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="label" for="title" data-i18n="titleLabel">หัวข้อ *</label>
+      <input class="control" id="title" type="text" maxlength="140"
+             data-i18n-ph="titlePh" placeholder="สรุปสั้น ๆ เช่น ส่งออกรายงานประจำเดือนไม่ได้" required />
+      <p class="err" data-err="title"></p>
+    </div>
+
+    <div class="field">
+      <label class="label" for="description" data-i18n="detailsLabel">รายละเอียด</label>
+      <textarea class="control" id="description" rows="6" maxlength="5000"
+                data-i18n-ph="detailsPh"
+                placeholder="เกิดอะไรขึ้น คาดว่าควรเป็นอย่างไร และข้อมูลที่ช่วยให้เราตรวจสอบตามได้"></textarea>
+      <p class="hint"><span id="descCount">0</span>/5000</p>
+    </div>
+
+    <div class="field">
+      <span class="label" data-i18n="filesLabel">ไฟล์แนบ</span>
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" data-i18n-aria="dropAria"
+           aria-label="เพิ่มไฟล์แนบ — คลิก ลากไฟล์มาวาง หรือวางภาพหน้าจอ">
+        <strong data-i18n="dropTitle">คลิกเพื่อเลือกไฟล์</strong>
+        <span data-i18n="dropHint">หรือลากมาวางที่นี่ — วางภาพหน้าจอด้วย ⌘V ก็ได้</span>
+        <small data-i18n="dropMeta">รูปภาพหรือ PDF · ไม่เกิน 5 ไฟล์ · รูปใหญ่ย่อให้อัตโนมัติ</small>
+      </div>
+      <input id="fileInput" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" hidden />
+      <div class="thumbs" id="thumbs"></div>
+      <p class="err" data-err="files"></p>
+    </div>
+
+    <!-- Bots fill this in; people never see it. -->
+    <div class="gotcha" aria-hidden="true">
+      <label for="website">Leave this empty</label>
+      <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="submitBtn" type="submit" data-i18n="send">ส่งคำขอ</button>
+      <p class="err form-err" data-err="form"></p>
+    </div>
+  </form>
+
+  <!-- ── Success ─────────────────────────────────────────── -->
+  <section class="card done hidden" id="done">
+    <div class="tick" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+    </div>
+    <h2 data-i18n="doneTitle">ได้รับคำขอแล้ว</h2>
+    <p data-i18n="doneBody">ขอบคุณครับ เรื่องเข้าบอร์ดแล้ว เดี๋ยวจะมีคนมารับเรื่อง</p>
+    <p class="ref"><span data-i18n="refLabel">เลขอ้างอิง</span> <code id="ticketRef"></code></p>
+    <button class="btn btn-outline" id="againBtn" type="button" data-i18n="again">ส่งคำขออีกเรื่อง</button>
+  </section>
+
+  <footer class="foot">TaskFlow · Fairdee</footer>
+</main>
+
+<script src="submit.js"></script>
+</body>
+</html>

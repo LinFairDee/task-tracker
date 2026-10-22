@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// Ticket attachments are written by the submitTicket Cloud Function using the
+// Admin SDK (which bypasses these rules) and read back through per-file
+// download tokens embedded in the URL. Nothing needs direct client access, so
+// nothing gets it.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

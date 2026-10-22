@@ -10,10 +10,36 @@
       {
         "source": "**/*.@(js|css)",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache, max-age=0" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, max-age=0"
+          }
         ]
       }
+    ],
+    "rewrites": [
+      {
+        "source": "/api/ticket",
+        "function": {
+          "functionId": "submitTicket",
+          "region": "asia-southeast1"
+        }
+      },
+      {
+        "source": "/api/team",
+        "function": {
+          "functionId": "ticketAssignees",
+          "region": "asia-southeast1"
+        }
+      },
+      {
+        "source": "/submit",
+        "destination": "/submit.html"
+      }
     ]
+  },
+  "storage": {
+    "rules": "storage.rules"
   },
   "firestore": {
     "rules": "firestore.rules"
